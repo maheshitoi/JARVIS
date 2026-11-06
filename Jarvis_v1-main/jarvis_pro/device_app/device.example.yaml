@@ -1,0 +1,36 @@
+# =====================================================================
+#  JARVIS Device app — settings for THIS device
+# =====================================================================
+#  Copy to device.yaml (next to JarvisDevice.exe / jarvis_device.py).
+#  server_url + device_key come from the JARVIS owner:
+#     python manage_devices.py add "<this device's name>" --role guest --server <url>
+#
+#  The permissions below are enforced HERE, on this device, whatever the
+#  server says. Whoever controls this PC decides what JARVIS may do on it.
+#     allow    JARVIS does it
+#     confirm  an Approve/Deny popup appears on this PC first
+#     deny     never
+# =====================================================================
+
+server_url: "https://your-jarvis-server.example.com"   # where server.py is reachable
+device_key: "jd_..."                                   # secret - don't share it
+
+permissions:
+  info: allow       # CPU, RAM, disk, battery, time
+  open_url: allow   # open websites in the default browser
+  open_app: confirm # open an app from the list below
+  view: allow       # screenshot when you ask "what's on my screen?"
+  windows: allow    # list open window titles
+  control: confirm  # type text, press hotkeys, switch windows
+
+apps: # name JARVIS hears  ->  Windows command (only these can be opened)
+  notepad: "notepad.exe"
+  calculator: "calc.exe"
+  explorer: "explorer.exe"
+  chrome: "chrome"
+  edge: "msedge"
+  settings: "ms-settings:"
+
+# Optional: pick audio devices by index (run: python -m sounddevice). Default = system default.
+# input_device: 1
+# output_device: 3

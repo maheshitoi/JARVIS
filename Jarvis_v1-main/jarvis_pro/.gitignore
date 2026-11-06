@@ -4,3 +4,10 @@ data/*.json
 data/*.jsonl
 !data/contacts.example.json
 __pycache__/
+
+# JARVIS Device app
+device_app/device.yaml
+device_app/.venv/
+device_app/build/
+device_app/dist/
+device_app/*.spec

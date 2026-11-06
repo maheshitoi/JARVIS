@@ -1,0 +1,11 @@
+# JARVIS Device app — no AI keys needed on the device; the server does the thinking.
+livekit>=1.2
+sounddevice
+numpy
+httpx
+pyyaml
+psutil
+mss
+Pillow
+pygetwindow
+pyautogui

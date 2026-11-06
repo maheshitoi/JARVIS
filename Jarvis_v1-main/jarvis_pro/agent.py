@@ -3,7 +3,8 @@
     python agent.py console   # talk in the terminal (mic + speakers)
     python agent.py dev       # serve the dashboard / phone calls via LiveKit
 
-One worker handles three kinds of sessions:
+One worker handles these kinds of sessions:
+  0. JARVIS Device app    -> OwnerAgent or GuestAgent; device tools run on THAT device only
   1. Dashboard / console  -> OwnerAgent (full access, per access.yaml)
   2. Inbound phone call   -> CallerAgent (take message / transfer / hang up)
                              or OwnerAgent if the number is a trusted owner number
@@ -26,8 +27,9 @@ from livekit.plugins import google, noise_cancellation  # noqa: E402
 
 from jarvis import audit, config  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
-from jarvis.agents import CallerAgent, OwnerAgent  # noqa: E402
-from jarvis.guard import DEVICE_ATTR, SessionData  # noqa: E402
+from jarvis import device_link  # noqa: E402
+from jarvis.agents import CallerAgent, GuestAgent, OwnerAgent  # noqa: E402
+from jarvis.guard import DEVICE_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData  # noqa: E402
 from jarvis.mcp_client import build_toolsets  # noqa: E402
 
 logger = logging.getLogger("jarvis")
@@ -84,7 +86,41 @@ async def entrypoint(ctx: JobContext) -> None:
             await _start_caller(ctx, participant, number=number)
         return
 
+    if participant.attributes.get(DEVICE_ATTR) == "app":
+        await _start_device(ctx, participant)
+        return
+
     await _start_owner(ctx, participant, video=policy.level("screen.live_share") != DENY)
+
+
+async def _start_device(ctx: JobContext, participant: rtc.RemoteParticipant) -> None:
+    """A JARVIS Device app session. Each device has its own room and its own session, so
+    a command from one device is only ever carried out on that same device."""
+    policy = get_policy()
+    # Attributes are set by server.py in the signed token; the device can't change them.
+    role = participant.attributes.get(OWNER_ROLE_ATTR)
+    name = participant.attributes.get(DEVICE_NAME_ATTR) or "this device"
+    if role not in ("owner", "guest"):
+        logger.warning("device %s has no valid role; refusing", participant.identity)
+        ctx.shutdown()
+        return
+    device_link.install(ctx.room)
+    audit.record({"capability": "device.connect", "summary": f"{name} connected ({role})", "status": role})
+    session = AgentSession(
+        llm=realtime_model(),
+        userdata=SessionData(mode=role, device_identity=participant.identity, device_name=name),
+    )
+    agent = (OwnerAgent(policy, toolsets=build_toolsets(policy), device_name=name) if role == "owner"
+             else GuestAgent(policy, device_name=name))
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+        room_options=room_io.RoomOptions(
+            participant_identity=participant.identity,
+            audio_input=room_io.AudioInputOptions(noise_cancellation=noise_cancellation.BVC()),
+            delete_room_on_close=True,
+        ),
+    )
 
 
 async def _start_owner(ctx: JobContext, participant: rtc.RemoteParticipant | None, *,

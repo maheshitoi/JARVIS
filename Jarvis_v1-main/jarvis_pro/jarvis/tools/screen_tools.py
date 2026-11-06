@@ -2,6 +2,9 @@
 
 Live screen viewing (watching a screen share from the dashboard) is handled by the
 agent session's video input, not by a tool — see `screen.live_share` in access.yaml.
+
+When the command comes from the JARVIS Device app, every tool here runs on THAT device
+(via device_link), not on the PC running JARVIS.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import io
 from google.genai import types
 from livekit.agents import RunContext, ToolError, function_tool
 
+from .. import device_link
 from ..genai_client import agenerate
 from ..guard import action
 
@@ -32,14 +36,17 @@ def _screenshot_jpeg(max_width: int = 1280) -> bytes:  # smaller = faster upload
 
 @function_tool
 async def look_at_screen(context: RunContext, question: str = "Describe what is on the screen.") -> str:
-    """Take a screenshot of Boss's main monitor and analyse it.
-    Use when Boss asks what's on the screen, to read an error, or for help with what they're looking at.
+    """Take a screenshot of the user's main monitor (on the device they are using) and analyse it.
+    Use when the user asks what's on the screen, to read an error, or for help with what they're looking at.
 
     Args:
         question: What to find out from the screenshot.
     """
     async with action(context, "screen.view", f"Screenshot: {question}") as act:
-        image = await asyncio.to_thread(_screenshot_jpeg)
+        if device_link.active(context):
+            image = await device_link.screenshot(context, event=act)
+        else:
+            image = await asyncio.to_thread(_screenshot_jpeg)
         resp = await agenerate(
             [
                 types.Part.from_bytes(data=image, mime_type="image/jpeg"),
@@ -64,8 +71,10 @@ def _windows() -> str:
 
 @function_tool
 async def list_open_windows(context: RunContext) -> str:
-    """List the titles of open windows on Boss's PC and which one is active."""
-    async with action(context, "screen.windows", "List open windows"):
+    """List the titles of open windows on the user's device and which one is active."""
+    async with action(context, "screen.windows", "List open windows") as act:
+        if device_link.active(context):
+            return (await device_link.call(context, "windows", event=act))["text"]
         return await asyncio.to_thread(_windows)
 
 
@@ -75,9 +84,13 @@ async def switch_to_window(context: RunContext, title_contains: str, confirmed: 
 
     Args:
         title_contains: Part of the window title, e.g. "Chrome" or "Visual Studio Code".
-        confirmed: Set true ONLY after Boss verbally confirmed (when asked to).
+        confirmed: Set true ONLY after the user verbally confirmed (when asked to).
     """
-    async with action(context, "screen.control", f"Switch to window '{title_contains}'", {}, confirmed):
+    async with action(context, "screen.control", f"Switch to window '{title_contains}'", {}, confirmed) as act:
+        if device_link.active(context):
+            res = await device_link.call(context, "switch_window", {"title_contains": title_contains}, event=act)
+            return f"Switched to {res['title']}."
+
         def _do() -> str:
             import pygetwindow as gw
 
@@ -96,14 +109,17 @@ async def switch_to_window(context: RunContext, title_contains: str, confirmed: 
 
 @function_tool
 async def type_text(context: RunContext, text: str, confirmed: bool = False) -> str:
-    """Type text into the currently focused window (like Boss typing on the keyboard).
+    """Type text into the currently focused window (like the user typing on the keyboard).
 
     Args:
         text: The text to type. English/ASCII characters only.
-        confirmed: Set true ONLY after Boss verbally confirmed (when asked to).
+        confirmed: Set true ONLY after the user verbally confirmed (when asked to).
     """
     async with action(context, "screen.control", f"Type text into active window: {text[:80]}",
-                      {"length": len(text)}, confirmed):
+                      {"length": len(text)}, confirmed) as act:
+        if device_link.active(context):
+            await device_link.call(context, "type_text", {"text": text}, event=act, timeout=60)
+            return "Typed."
         import pyautogui
 
         await asyncio.to_thread(pyautogui.write, text, 0.01)
@@ -116,7 +132,7 @@ async def press_hotkey(context: RunContext, keys: str, confirmed: bool = False) 
 
     Args:
         keys: Keys joined with '+', e.g. "ctrl+s", "alt+tab", "win+d", "enter".
-        confirmed: Set true ONLY after Boss verbally confirmed (when asked to).
+        confirmed: Set true ONLY after the user verbally confirmed (when asked to).
     """
     import pyautogui
 
@@ -124,8 +140,11 @@ async def press_hotkey(context: RunContext, keys: str, confirmed: bool = False) 
     bad = [k for k in parts if k not in pyautogui.KEYBOARD_KEYS]
     if not parts or bad:
         raise ToolError(f"Unknown key(s): {', '.join(bad) or keys}")
-    async with action(context, "screen.control", f"Press {'+'.join(parts)}", {}, confirmed):
-        await asyncio.to_thread(pyautogui.hotkey, *parts)
+    async with action(context, "screen.control", f"Press {'+'.join(parts)}", {}, confirmed) as act:
+        if device_link.active(context):
+            await device_link.call(context, "hotkey", {"keys": parts}, event=act)
+        else:
+            await asyncio.to_thread(pyautogui.hotkey, *parts)
     return f"Pressed {'+'.join(parts)}."
 
 

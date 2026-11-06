@@ -30,9 +30,9 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from livekit import api  # noqa: E402
 
-from jarvis import audit, config, websites  # noqa: E402
+from jarvis import audit, config, devices, websites  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
-from jarvis.guard import DEVICE_ATTR, OWNER_ROLE_ATTR  # noqa: E402
+from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR  # noqa: E402
 
 app = FastAPI(title="JARVIS PRO", docs_url=None, redoc_url=None)
 PASSWORD = config.env("JARVIS_UI_PASSWORD") or ""
@@ -47,31 +47,48 @@ def client_ip(request: Request) -> str:
     """Real visitor IP. Behind Cloudflare Tunnel every request arrives from localhost,
     so trust Cloudflare's header only in that case (it can't be spoofed from outside)."""
     peer = request.client.host if request.client else "unknown"
-    if peer in ("127.0.0.1", "::1") and request.headers.get("cf-connecting-ip"):
-        return request.headers["cf-connecting-ip"]
+    if peer in ("127.0.0.1", "::1"):
+        if request.headers.get("cf-connecting-ip"):
+            return request.headers["cf-connecting-ip"]
+        if request.headers.get("x-forwarded-for"):  # ngrok and other local tunnels/proxies
+            return request.headers["x-forwarded-for"].split(",")[0].strip()
     return peer
+
+
+def _via_tunnel(request: Request) -> bool:
+    return bool(request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for"))
+
+
+def _check_lockout(ip: str) -> None:
+    now = time.time()
+    if _locked_until.get(ip, 0) > now:
+        raise HTTPException(429, f"Too many wrong attempts. Try again in {int(_locked_until[ip] - now) // 60 + 1} min.")
+
+
+def _record_failure(ip: str, what: str) -> None:
+    now = time.time()
+    recent = [t for t in _failures[ip] if now - t < WINDOW_S] + [now]
+    _failures[ip] = recent
+    if len(recent) >= MAX_FAILURES:
+        _locked_until[ip] = now + LOCKOUT_S
+        _failures.pop(ip, None)
+        audit.record({"capability": what, "summary": f"Locked out {ip} after {MAX_FAILURES} "
+                      "wrong attempts", "status": "blocked"})
 
 
 def check_key(request: Request, x_jarvis_key: str = Header(default=""),
               jarvis_key: str = Cookie(default="")) -> None:
     if not PASSWORD:
         return
-    ip, now = client_ip(request), time.time()
-    if _locked_until.get(ip, 0) > now:
-        raise HTTPException(429, f"Too many wrong passwords. Try again in {int(_locked_until[ip] - now) // 60 + 1} min.")
+    ip = client_ip(request)
+    _check_lockout(ip)
     # Header for API calls; cookie so links opened in a new tab (reports) also work.
     supplied = x_jarvis_key or jarvis_key
     if secrets.compare_digest(supplied.encode(), PASSWORD.encode()):
         _failures.pop(ip, None)
         return
     if supplied:  # an actual wrong guess (not just a first visit without a password)
-        recent = [t for t in _failures[ip] if now - t < WINDOW_S] + [now]
-        _failures[ip] = recent
-        if len(recent) >= MAX_FAILURES:
-            _locked_until[ip] = now + LOCKOUT_S
-            _failures.pop(ip, None)
-            audit.record({"capability": "dashboard.login", "summary": f"Locked out {ip} after {MAX_FAILURES} "
-                          "wrong passwords", "status": "blocked"})
+        _record_failure(ip, "dashboard.login")
     raise HTTPException(status_code=401, detail="Wrong or missing dashboard password")
 
 
@@ -93,7 +110,9 @@ def status() -> dict:
 def device_of(request: Request) -> str:
     """'host' = browser on the PC that runs JARVIS; 'remote' = any other device (e.g. via the tunnel)."""
     peer = request.client.host if request.client else ""
-    local = peer in ("127.0.0.1", "::1") and not request.headers.get("cf-connecting-ip")
+    # Anything arriving through a tunnel (Cloudflare, ngrok) is another device, even though
+    # the tunnel itself connects from localhost.
+    local = peer in ("127.0.0.1", "::1") and not _via_tunnel(request)
     return "host" if local else "remote"
 
 
@@ -115,6 +134,41 @@ def token(request: Request) -> dict:
         .to_jwt()
     )
     return {"url": url, "token": jwt, "room": room, "identity": identity}
+
+
+@app.post("/api/device/token")
+def device_token(request: Request, x_device_key: str = Header(default="")) -> dict:
+    """LiveKit token for the JARVIS Device app. Every connection gets its own private room, so the
+    agent session it starts can only reach this one device."""
+    ip = client_ip(request)
+    _check_lockout(ip)
+    device = devices.verify(x_device_key)
+    if device is None:
+        _record_failure(ip, "device.login")
+        raise HTTPException(401, "Unknown, disabled or removed device key")
+    _failures.pop(ip, None)
+    url, key, secret = (config.env(n) for n in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
+    if not (url and key and secret):
+        raise HTTPException(500, "LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET missing in .env")
+    room = f"dev-{device['id']}-{uuid.uuid4().hex[:6]}"
+    identity = f"device-{device['id']}-{uuid.uuid4().hex[:4]}"
+    jwt = (
+        api.AccessToken(key, secret)
+        .with_identity(identity)
+        .with_name(device["name"])
+        # Role and device come from the registry, inside the signed token. The device can't
+        # change its own attributes (no can_update_own_metadata grant).
+        .with_attributes({OWNER_ROLE_ATTR: device["role"], DEVICE_ATTR: "app",
+                          DEVICE_ID_ATTR: device["id"], DEVICE_NAME_ATTR: device["name"]})
+        .with_grants(api.VideoGrants(room_join=True, room=room, can_publish=True,
+                                     can_subscribe=True, can_publish_data=True))
+        .with_room_config(api.RoomConfiguration(agents=[api.RoomAgentDispatch(agent_name=config.AGENT_NAME)]))
+        .to_jwt()
+    )
+    audit.record({"capability": "device.login", "summary": f"{device['name']} ({device['role']}) from {ip}",
+                  "status": "ok"})
+    return {"url": url, "token": jwt, "room": room, "identity": identity,
+            "device": {"id": device["id"], "name": device["name"], "role": device["role"]}}
 
 
 @app.get("/api/access", dependencies=[Depends(check_key)])

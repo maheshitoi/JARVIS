@@ -25,23 +25,29 @@ from livekit.agents import RunContext, ToolError, get_job_context
 
 from . import audit
 from .access import ALLOW, CONFIRM, DENY, AccessPolicy, get_policy
+from .device_link import DEVICE_CAPS
 
 logger = logging.getLogger("jarvis.guard")
 
 EVENTS_TOPIC = "jarvis.events"
 APPROVE_RPC = "jarvis.approve"
-OWNER_ROLE_ATTR = "jarvis.role"
-DEVICE_ATTR = "jarvis.device"  # "host" (the PC running JARVIS) or "remote" (phone, laptop elsewhere)
+OWNER_ROLE_ATTR = "jarvis.role"  # "owner" | "guest"
+DEVICE_ATTR = "jarvis.device"  # "host" (the PC running JARVIS), "remote" (browser elsewhere), "app" (Device app)
+DEVICE_ID_ATTR = "jarvis.device_id"
+DEVICE_NAME_ATTR = "jarvis.device_name"
 
 
 @dataclass
 class SessionData:
     """Per-session state, available to tools as context.userdata."""
 
-    mode: str = "owner"  # "owner" | "caller"
+    mode: str = "owner"  # "owner" | "guest" (someone else's device) | "caller"
     caller_number: str | None = None
     caller_identity: str | None = None
     purpose: str | None = None
+    # Set when the session comes from the JARVIS Device app: device tools run on THIS participant.
+    device_identity: str | None = None
+    device_name: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -96,30 +102,35 @@ async def _log(event: dict[str, Any], status: str, **extra: Any) -> None:
 
 
 async def _request_approval(
-    policy: AccessPolicy, event: dict[str, Any], mode: str, confirmed: bool
+    policy: AccessPolicy, event: dict[str, Any], mode: str, confirmed: bool,
+    device_identity: str | None = None,
 ) -> str:
     """Return how it was approved, or raise ToolError if it wasn't."""
     if mode == "caller":
         raise ToolError("This action is not available to phone callers.")
 
-    owner = find_owner(_room())
-    if owner is not None:
+    # Device app session: the popup appears on the device that gave the command, nowhere else.
+    approver = device_identity
+    if approver is None:
+        owner = find_owner(_room())
+        approver = owner.identity if owner else None
+    if approver is not None:
         await _log(event, "awaiting_approval")
         try:
             resp = await _room().local_participant.perform_rpc(  # type: ignore[union-attr]
-                destination_identity=owner.identity,
+                destination_identity=approver,
                 method=APPROVE_RPC,
                 payload=json.dumps(event, default=str),
                 response_timeout=policy.approval_timeout,
             )
             if json.loads(resp or "{}").get("approved") is True:
                 return "dashboard"
-            raise ToolError(f"{policy.owner_name} declined this action on the dashboard. Do not retry.")
+            raise ToolError(f"{_who(policy, mode)} declined this action. Do not retry.")
         except ToolError:
             raise
         except Exception as e:  # noqa: BLE001  (timeout / disconnected)
             raise ToolError(
-                f"No approval received ({type(e).__name__}). Tell {policy.owner_name} it was not done."
+                f"No approval received ({type(e).__name__}). Tell {_who(policy, mode)} it was not done."
             ) from e
 
     if policy.allow_voice_confirmation:
@@ -134,6 +145,10 @@ async def _request_approval(
     raise ToolError("This action needs dashboard approval. Ask Boss to open the dashboard.")
 
 
+def _who(policy: AccessPolicy, mode: str) -> str:
+    return "The user" if mode == "guest" else policy.owner_name
+
+
 @asynccontextmanager
 async def action(
     context: RunContext | None,
@@ -146,6 +161,7 @@ async def action(
     level = policy.level(capability)
     userdata = getattr(context, "userdata", None) if context else None
     mode = getattr(userdata, "mode", "owner")
+    device_identity = getattr(userdata, "device_identity", None)
 
     event: dict[str, Any] = {
         "id": uuid.uuid4().hex[:12],
@@ -154,7 +170,19 @@ async def action(
         "details": details or {},
         "level": level,
         "mode": mode,
+        **({"device": getattr(userdata, "device_name", None)} if device_identity else {}),
     }
+
+    if mode == "guest" and capability not in DEVICE_CAPS:
+        # A guest's session may only act on the guest's own device — never on Boss's accounts.
+        await _log(event, "blocked", reason="guest device")
+        raise ToolError("That isn't available on this device. You can only act on this device itself.")
+
+    if level != DENY and device_identity and is_host_only(capability) and capability not in DEVICE_CAPS:
+        # Device app session: host-only tools that can't run on the device (e.g. WhatsApp Desktop
+        # of the home PC) are never run on the home PC on its behalf.
+        await _log(event, "blocked", reason="command came from another device")
+        raise ToolError("That only works on the home PC itself, not from this device. Say so briefly.")
 
     if level != DENY and is_host_only(capability) and owner_is_remote():
         # Defence in depth: the tool shouldn't even be offered to a remote device.
@@ -175,14 +203,15 @@ async def action(
     approved_by = "policy"
     if level == CONFIRM:
         try:
-            approved_by = await _request_approval(policy, event, mode, confirmed)
+            approved_by = await _request_approval(policy, event, mode, confirmed, device_identity)
         except ToolError as e:
             status = "needs_confirmation" if "CONFIRMATION REQUIRED" in str(e) else "denied"
             await _log(event, status, reason=str(e)[:200])
             raise
     assert level in (ALLOW, CONFIRM)
+    event["approved_by"] = approved_by  # device_link uses it to skip a second popup on the device
 
-    await _log(event, "running", approved_by=approved_by)
+    await _log(event, "running")
     try:
         yield event
     except ToolError as e:

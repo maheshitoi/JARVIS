@@ -5,6 +5,7 @@ policy when it runs, so live edits to access.yaml still apply."""
 from __future__ import annotations
 
 from ..access import AccessPolicy
+from ..device_link import DEVICE_CAPS
 from ..guard import is_host_only
 from . import (
     email_tools,
@@ -27,11 +28,24 @@ _OWNER = (
 )
 
 
-def owner_tools(policy: AccessPolicy, *, remote: bool = False) -> list:
-    """remote=True: the command comes from another device, so tools that act on the PC
-    running JARVIS (apps, screen, WhatsApp Desktop, PC status) are left out entirely."""
-    return _unique(t for cap, t in _OWNER
-                   if policy.allowed(cap) and not (remote and is_host_only(cap)))
+def owner_tools(policy: AccessPolicy, *, remote: bool = False, device_app: bool = False) -> list:
+    """remote=True: the command comes from a browser on another device, so tools that act on the PC
+    running JARVIS (apps, screen, WhatsApp Desktop, PC status) are left out entirely.
+    device_app=True: the JARVIS Device app is connected, so device tools run on THAT device;
+    host-only tools it can't run (WhatsApp Desktop of the home PC) are left out."""
+    def keep(cap: str) -> bool:
+        if not policy.allowed(cap):
+            return False
+        if device_app:
+            return cap in DEVICE_CAPS or not is_host_only(cap)
+        return not (remote and is_host_only(cap))
+
+    return _unique(t for cap, t in _OWNER if keep(cap))
+
+
+def guest_tools(policy: AccessPolicy) -> list:
+    """Someone else's device: only tools that act on their own device."""
+    return _unique(t for cap, t in _OWNER if cap in DEVICE_CAPS and policy.allowed(cap))
 
 
 def caller_tools(policy: AccessPolicy) -> list:

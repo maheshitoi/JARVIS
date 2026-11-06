@@ -16,6 +16,7 @@ JARVIS PRO is the advanced version of JARVIS. It's a real-time voice agent that 
 7. [Security model](#7-security-model)
 8. [Folder structure](#8-folder-structure)
 9. [Troubleshooting](#9-troubleshooting)
+10. [Many devices: the JARVIS Device app](#10-many-devices-the-jarvis-device-app)
 
 ---
 
@@ -359,3 +360,40 @@ To use contacts, copy `data/contacts.example.json` to `data/contacts.json` and a
 | Gmail `AUTHENTICATIONFAILED` | Use an App Password and enable IMAP |
 | Outbound call fails (SIP 403/404) | Check the trunk address, credentials, and that the number is in E.164 format (`+91…`) |
 | Meta API error "(#200) permissions" | The token is missing a permission from section 5.5, or the app is in dev mode |
+
+---
+
+## 10. Many devices: the JARVIS Device app
+
+Use one JARVIS on many Windows PCs. **Each device gets its own session and JARVIS acts only on the device that gave the command.** If you say "what's on my screen?" on your laptop, JARVIS looks at your laptop. If Ravi says it on his PC, it looks at Ravi's PC and never at yours.
+
+```
+Device A (JarvisDevice.exe) ──► private room A ──► agent session A ──RPC──► Device A only
+Device B (JarvisDevice.exe) ──► private room B ──► agent session B ──RPC──► Device B only
+```
+
+**1. Register each device** on the PC that runs JARVIS:
+```powershell
+python manage_devices.py add "My laptop"  --role owner --server https://<your-jarvis-url>
+python manage_devices.py add "Ravi's PC"  --role guest --server https://<your-jarvis-url>
+python manage_devices.py list            # also: disable <id> / enable <id> / remove <id>
+```
+This prints a `device.yaml` with the device's secret key. The key is shown only once.
+
+| Role | What JARVIS can do in that device's session |
+|---|---|
+| `owner` | Full JARVIS per `access.yaml`. Screen, windows, keyboard, apps, websites and PC status act on **that device**. WhatsApp Desktop (home PC only) is not available. |
+| `guest` | **Only** that device's own screen, windows, keyboard, apps, websites and PC status. No email, WhatsApp, memory, social media or phone. This is enforced in code ([guard.py](jarvis/guard.py)), not just in the prompt. |
+
+**2. Make the server reachable** from the devices, for example with `cloudflared tunnel --url http://localhost:8000`, and keep `python agent.py dev` and `python server.py` running.
+
+**3. Build the app once** (on any Windows PC):
+```powershell
+cd device_app
+powershell -ExecutionPolicy Bypass -File build.ps1    # -> dist\JarvisDevice\JarvisDevice.exe
+```
+Copy the `dist\JarvisDevice` folder to the device, put its `device.yaml` next to the exe, then run it and click **Connect**. To run without building: `pip install -r device_app/requirements.txt` and then `python device_app/jarvis_device.py`.
+
+**4. The device decides what JARVIS may do on it.** The `permissions:` and `apps:` in that device's `device.yaml` (see [device.example.yaml](device_app/device.example.yaml)) are enforced **on the device**, whatever the server says. `confirm` shows an Approve/Deny popup on that device. Both checks apply: an action must be allowed by `access.yaml` **and** by the device.
+
+No AI keys go on the devices. The server does the thinking and the device only runs the actions. Phones can't run the app; they keep using the browser dashboard (voice, screen sharing, opening links on the phone).
