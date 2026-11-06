@@ -1,0 +1,6 @@
+.env
+logs/
+data/*.json
+data/*.jsonl
+!data/contacts.example.json
+__pycache__/

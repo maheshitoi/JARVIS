@@ -1,0 +1,24 @@
+# Voice agent
+livekit-agents[google]~=1.8
+livekit-plugins-noise-cancellation~=0.2
+livekit-api>=1.0
+mcp>=2.0            # MCP client (JARVIS) + website monitor MCP server
+certifi
+google-genai>=1.0
+python-dotenv
+pyyaml
+httpx
+
+# Dashboard server
+fastapi
+uvicorn[standard]
+
+# Windows PC + screen
+psutil
+mss
+Pillow
+pygetwindow
+pyautogui
+
+# Social media
+tweepy

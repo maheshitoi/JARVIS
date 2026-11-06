@@ -1,0 +1,233 @@
+# =====================================================================
+#  JARVIS PRO — ACCESS CONTROL FILE
+# =====================================================================
+#  This one file decides EVERYTHING JARVIS is allowed to touch.
+#
+#  Every capability has:
+#    enabled:  true / false   -> master switch. false = JARVIS doesn't even
+#                                know the tools exist.
+#    actions:                 -> one permission level per action:
+#        allow    JARVIS can do it on its own
+#        confirm  JARVIS must get your approval first
+#                 (Approve/Deny popup on the dashboard, or a spoken "yes"
+#                 when no dashboard is open)
+#        deny     blocked, even if the capability is enabled
+#
+#  Unknown / missing actions are treated as DENY (secure by default).
+#  Changes to levels apply LIVE (within a second). Turning a whole
+#  capability on/off (enabled:) needs a new session — just reconnect.
+#
+#  Secrets (passwords, tokens, API keys) NEVER go in this file.
+#  They live in .env — see .env.example.
+# =====================================================================
+
+version: 1
+
+owner:
+  name: "Boss" # what JARVIS calls you
+  timezone: "Asia/Kolkata"
+
+approval:
+  timeout_seconds: 60 # how long the dashboard popup waits before auto-deny
+  allow_voice_confirmation: true # when no dashboard is open, a spoken "yes" counts
+
+capabilities:
+  # -------------------------------------------------------------------
+  # MEMORY — long-term facts and contacts stored locally in data/
+  # -------------------------------------------------------------------
+  memory:
+    description: "Remember facts about you and look up contacts"
+    risk: low
+    enabled: true
+    actions:
+      read: allow # recall facts, look up contacts
+      write: allow # save new facts
+
+  # -------------------------------------------------------------------
+  # SYSTEM — your Windows PC (no keyboard/mouse control; see screen.control)
+  # -------------------------------------------------------------------
+  system:
+    description: "PC status, open allowed apps and websites"
+    risk: medium
+    enabled: true
+    actions:
+      info: allow # CPU, RAM, battery, disk, date/time
+      open_url: allow # open a website in your default browser
+      open_app: confirm # launch an app from the list below ONLY
+    apps: # name JARVIS hears  ->  Windows command
+      notepad: "notepad.exe"
+      calculator: "calc.exe"
+      explorer: "explorer.exe"
+      chrome: "chrome"
+      vscode: "code"
+      spotify: "spotify:"
+      whatsapp: "whatsapp:" # WhatsApp Desktop (Microsoft Store version)
+      settings: "ms-settings:"
+
+  # -------------------------------------------------------------------
+  # SCREEN — JARVIS sees (and optionally controls) your Windows screen
+  # -------------------------------------------------------------------
+  screen:
+    description: "See your screen, list windows, optional keyboard control"
+    risk: high
+    enabled: true
+    actions:
+      view: allow # takes a screenshot when you ask "what's on my screen?"
+      live_share: allow # watches the screen you share from the dashboard
+      windows: allow # list open window titles
+      control:
+        allow # type text / press hotkeys / switch windows
+        # (set to "confirm" to enable — never "allow")
+
+  # -------------------------------------------------------------------
+  # WEBSITES — monitor your sites + daily report (served to JARVIS over MCP)
+  # Run the background monitor:  python workers/site_monitor.py
+  # -------------------------------------------------------------------
+  websites:
+    description: "Monitor your websites: uptime, speed, SSL, SEO, broken links, daily report"
+    risk: low
+    enabled: true
+    actions:
+      check: allow # run live checks, list sites
+      report: allow # read / generate reports and history
+    sites: # ADD YOUR WEBSITES HERE
+      - name: "TeleDoctor Admin (dev)"
+        url: "https://dev.admin.teledoctor.life/"
+        seo: false # admin panel: skip SEO checks
+        login_check: # logs in and only confirms a token comes back — no data is read
+          url: "https://dev.teledoctor.life/api/v1/auth/login/admin"
+          username_field: "email"
+          username_env: "TELEDOCTOR_ADMIN_EMAIL" # credentials live in jarvis_pro/.env
+          password_env: "TELEDOCTOR_ADMIN_PASSWORD"
+          expect: "tokens.access_token"
+          every_check: false # true = also every 15 min (creates a login session each time)
+      # - name: "Example"
+      #   url: "https://example.com"
+      #   keywords: ["Example Domain"]   # optional: text that must appear on the page
+      # - name: "My Shop"
+      #   url: "https://myshop.com"
+      #   keywords: ["Add to cart"]
+    report:
+      enabled: true
+      time: "09:00" # daily report time (local)
+      check_every_minutes: 15 # uptime checks in between
+      email_to_owner: true # email the report to EMAIL_ADDRESS (needs email creds in .env)
+      slow_ms: 2000 # slower than this = issue
+      ssl_warn_days: 14 # warn when the certificate expires within N days
+
+  # -------------------------------------------------------------------
+  # MCP — Model Context Protocol servers JARVIS connects to for extra tools.
+  # Tools from MCP servers are NOT individually approved by JARVIS's gate:
+  # only add servers you trust, and use allowed_tools to limit them.
+  # -------------------------------------------------------------------
+  mcp:
+    description: "Extra tools from MCP servers (website monitor + any you add)"
+    risk: medium
+    enabled: true
+    actions:
+      use: allow # deny = JARVIS connects to no MCP servers at all
+    servers:
+      website_monitor: # built in — enforces the websites permissions above itself
+        enabled: true
+        command: "python" # "python" = the same Python that runs JARVIS
+        args: ["mcp_servers/website_monitor.py"]
+        allowed_tools: [] # empty = all tools of this server
+      # Example of a remote MCP server (streamable HTTP):
+      # analytics:
+      #   enabled: false
+      #   url: "https://example.com/mcp"
+      #   headers: {Authorization: "Bearer ${ANALYTICS_TOKEN}"}   # ${VAR} is read from .env
+      #   allowed_tools: ["get_report"]
+
+  # -------------------------------------------------------------------
+  # EMAIL — IMAP/SMTP (Gmail, Outlook, Zoho, ...). Creds: EMAIL_* in .env
+  # -------------------------------------------------------------------
+  email:
+    description: "Read, draft and send email; background auto-reply"
+    risk: high
+    enabled: false
+    actions:
+      read: allow # read / summarise inbox
+      draft: allow # save a draft (you send it yourself)
+      send: confirm # send an email immediately
+    auto_reply: # used by: python workers/email_autoreply.py
+      enabled: false
+      mode: draft # draft = save replies as drafts | send = send automatically
+      check_every_seconds: 60
+      only_from: [] # e.g. ["@mycompany.com", "client@x.com"] — empty = everyone
+      never_reply_to:
+        [
+          "noreply",
+          "no-reply",
+          "donotreply",
+          "mailer-daemon",
+          "notifications",
+          "newsletter",
+        ]
+      signature: "— JARVIS, assistant to Boss"
+
+  # -------------------------------------------------------------------
+  # PHONE — real phone calls through LiveKit SIP (Twilio / Telnyx / Plivo / Exotel)
+  # -------------------------------------------------------------------
+  phone:
+    description: "Answer calls, take messages, make outbound calls"
+    risk: high
+    enabled: false
+    actions:
+      call_out: confirm # JARVIS dials a number for you
+      read_messages: allow # read messages callers left
+      take_message: allow # (caller side) record a message for you
+      end_call: allow # (caller side) hang up when finished
+      transfer: allow # (caller side) forward the caller to your real phone
+    owner_numbers: [] # your own numbers, e.g. ["+919876543210"]
+    trust_caller_id:
+      false # true = calls from owner_numbers get FULL owner access.
+      # Caller ID can be spoofed — keep false unless you accept that risk.
+    transfer_number: "" # where "transfer" forwards to, e.g. "+919876543210"
+    allowed_country_codes: ["+91", "+1"] # outbound calls only to these prefixes
+    email_messages_to_owner: true # also email you each message (needs email enabled)
+
+  # -------------------------------------------------------------------
+  # SOCIAL MEDIA — each platform is switched on separately. Creds in .env
+  # -------------------------------------------------------------------
+  social:
+    x:
+      description: "Post to X (Twitter)"
+      risk: high
+      enabled: false
+      actions:
+        post: confirm
+
+    facebook:
+      description: "Facebook Page: read comments, post, reply"
+      risk: high
+      enabled: false
+      actions:
+        read: allow
+        post: confirm
+        reply: confirm
+
+    instagram:
+      description: "Instagram Business: read comments, publish image posts"
+      risk: high
+      enabled: false
+      actions:
+        read: allow
+        post: confirm
+
+    whatsapp:
+      description: "WhatsApp Desktop on this PC: view chats, read, type and send messages"
+      risk: high
+      enabled: true # needs WhatsApp Desktop installed + logged in, screen unlocked
+      actions:
+        view: allow # see the chat list, unread chats, previews
+        read: allow # open a chat and read its latest messages
+        edit: allow # type / replace a message in the input box — NOT sent
+        send: confirm # send a message (you approve the exact text + chat)
+
+    linkedin:
+      description: "Post to your LinkedIn profile"
+      risk: high
+      enabled: false
+      actions:
+        post: confirm
