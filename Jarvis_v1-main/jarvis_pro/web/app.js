@@ -531,8 +531,10 @@
       $("tab-conversation").hidden = name !== "conversation";
       $("tab-activity").hidden = name !== "activity";
       $("tab-websites").hidden = name !== "websites";
+      $("tab-devices").hidden = name !== "devices";
       if (name === "activity") { unseenActivity = 0; $("activity-badge").hidden = true; }
       if (name === "websites") loadWebsites();
+      if (name === "devices") loadDevices();
     })
   );
 
@@ -591,6 +593,182 @@
     }
   });
 
+  // ------------------------------------------------------------ devices --
+  const openPerms = new Set();   // device ids whose permission table is expanded
+  let devicesBusy = false;
+
+  function ago(ts) {
+    if (!ts) return "never";
+    const s = Math.floor(Date.now() / 1000) - ts;
+    if (s < 120) return "just now";
+    if (s < 7200) return `${Math.floor(s / 60)} min ago`;
+    if (s < 172800) return `${Math.floor(s / 3600)} h ago`;
+    return new Date(ts * 1000).toLocaleDateString();
+  }
+
+  function setRequestBadge(n) {
+    const badge = $("devices-badge");
+    badge.textContent = String(n);
+    badge.hidden = n === 0;
+  }
+
+  async function loadDevices() {
+    if (devicesBusy) return;
+    devicesBusy = true;
+    try {
+      const data = await api("/api/devices");
+      setRequestBadge(data.requests.length);
+      if ($("tab-devices").hidden) return;   // badge only while the tab is closed
+      renderRequests(data.requests);
+      renderDevices(data.devices);
+    } catch (e) {
+      if (!$("tab-devices").hidden) $("device-list").replaceChildren(el("div", "muted small", "Could not load devices: " + e.message));
+    } finally {
+      devicesBusy = false;
+    }
+  }
+
+  function renderRequests(reqs) {
+    $("req-section").hidden = reqs.length === 0;
+    const list = $("req-list");
+    list.replaceChildren();
+    for (const r of reqs) {
+      const card = el("div", "req");
+      const top = el("div", "site-top");
+      top.append(el("span", "site-name", r.device_name), el("span", "act-time", ago(r.ts) + (r.count > 1 ? ` · ${r.count}×` : "")));
+      card.append(top, el("div", "req-cap mono", r.capability), el("div", "act-sum", r.summary));
+      const row = el("div", "req-actions");
+      const choices = [["allow", "Allow", "allow"], ["confirm", "Ask each time", "confirm"], ["deny", "Deny", "danger"]];
+      for (const [decision, label, cls] of choices) {
+        const b = el("button", "btn small-btn " + cls, label);
+        b.addEventListener("click", async () => {
+          row.querySelectorAll("button").forEach((x) => (x.disabled = true));
+          try {
+            await api(`/api/permission-requests/${r.id}`, {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision }),
+            });
+          } catch (e) { alert(e.message); }
+          loadDevices();
+        });
+        row.append(b);
+      }
+      card.append(row);
+      list.append(card);
+    }
+  }
+
+  function renderDevices(devs) {
+    const list = $("device-list");
+    list.replaceChildren();
+    if (!devs.length) list.append(el("div", "muted small", "No devices yet. Click “Add device”, then run the JARVIS Device app on that PC."));
+    for (const d of devs) {
+      const card = el("div", "site device" + (d.enabled ? "" : " off"));
+      const top = el("div", "site-top");
+      const name = el("span", "site-name", d.name);
+      const state = !d.enabled ? ["disabled", "DISABLED"] : d.online ? ["up", "ONLINE"] : ["unknown", "offline"];
+      top.append(name, el("span", "site-state " + state[0], "● " + state[1]));
+      const meta = el("div", "site-meta");
+      meta.append(el("span", "role-chip " + d.role, d.role), document.createTextNode(`  last seen ${ago(d.last_seen)}`));
+      card.append(top, meta);
+
+      const usable = d.permissions_table.filter((p) => p.effective !== "deny");
+      const sum = el("div", "dev-caps");
+      if (!usable.length) sum.append(el("span", "muted small", "Can't do anything yet."));
+      for (const p of usable) sum.append(el("span", "chip " + p.effective, p.capability));
+      card.append(sum);
+
+      const row = el("div", "req-actions");
+      const permsBtn = el("button", "btn small-btn", openPerms.has(d.id) ? "Hide permissions" : "Permissions");
+      const toggle = el("button", "btn small-btn", d.enabled ? "Disable" : "Enable");
+      const del = el("button", "btn small-btn danger", "Remove");
+      permsBtn.addEventListener("click", () => {
+        openPerms.has(d.id) ? openPerms.delete(d.id) : openPerms.add(d.id);
+        renderDevices(devs);
+      });
+      toggle.addEventListener("click", async () => {
+        await api(`/api/devices/${d.id}/enabled`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: !d.enabled }),
+        }).catch((e) => alert(e.message));
+        loadDevices();
+      });
+      del.addEventListener("click", async () => {
+        if (!confirm(`Remove “${d.name}”? Its key stops working immediately.`)) return;
+        await api(`/api/devices/${d.id}`, { method: "DELETE" }).catch((e) => alert(e.message));
+        loadDevices();
+      });
+      row.append(permsBtn, toggle, del);
+      card.append(row);
+
+      if (openPerms.has(d.id)) card.append(permTable(d));
+      list.append(card);
+    }
+  }
+
+  function permTable(d) {
+    const box = el("div", "perm-table");
+    for (const p of d.permissions_table) {
+      const line = el("div", "perm-row");
+      const label = el("div", "perm-label");
+      label.append(el("span", "mono perm-cap", p.capability));
+      const why = p.source === "access.yaml" ? "limited by access.yaml" : p.source === "device" ? "set for this device" : "default";
+      label.append(el("span", "muted perm-why", why));
+      const sel = el("select", "perm-select level-" + p.effective);
+      sel.setAttribute("aria-label", `${p.capability} on ${d.name}`);
+      const dflt = el("option", null, `default`);
+      dflt.value = "default";
+      sel.append(dflt);
+      for (const lvl of ["allow", "confirm", "deny"]) {
+        const o = el("option", null, lvl);
+        o.value = lvl;
+        if (p.global === "deny" && lvl !== "deny") o.disabled = true;   // can't exceed access.yaml
+        sel.append(o);
+      }
+      sel.value = p.device || "default";
+      sel.addEventListener("change", async () => {
+        sel.disabled = true;
+        try {
+          await api(`/api/devices/${d.id}/permissions`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ capability: p.capability, level: sel.value }),
+          });
+        } catch (e) { alert(e.message); }
+        loadDevices();
+      });
+      line.append(label, el("span", "chip " + p.effective, p.effective), sel);
+      box.append(line);
+    }
+    return box;
+  }
+
+  $("btn-add-device").addEventListener("click", () => {
+    $("add-device").hidden = !$("add-device").hidden;
+    if (!$("add-device").hidden) $("add-name").focus();
+  });
+  $("add-device").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const res = await api("/api/devices", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: $("add-name").value.trim(), role: $("add-role").value }),
+      });
+      $("new-device-name").textContent = res.device.name;
+      $("new-device-yaml").textContent = res.device_yaml;
+      $("new-device").hidden = false;
+      $("add-device").hidden = true;
+      $("add-name").value = "";
+      loadDevices();
+    } catch (err) { alert(err.message); }
+  });
+  $("btn-copy-yaml").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("new-device-yaml").textContent); $("btn-copy-yaml").textContent = "Copied"; }
+    catch { alert("Select the text and copy it manually."); }
+  });
+  $("btn-close-yaml").addEventListener("click", () => {
+    $("new-device").hidden = true;
+    $("new-device-yaml").textContent = "";   // don't leave the key on screen
+    $("btn-copy-yaml").textContent = "Copy";
+  });
+
   // -------------------------------------------------------------- boot --
   setInterval(() => { $("clock").textContent = new Date().toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }); }, 1000);
   setState("standby");
@@ -598,4 +776,7 @@
   loadAccess();
   loadAudit();
   setInterval(loadAccess, 10000);
+  loadDevices();
+  // Permission requests badge + live device status. Skipped while a permission menu is open.
+  setInterval(() => { if (!document.activeElement?.classList.contains("perm-select")) loadDevices(); }, 8000);
 })();

@@ -271,3 +271,37 @@ code { font-size: 11.5px; color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- devices ---------- */
+.devices .dev-h { margin: 0; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.req-list, .device-list { display: flex; flex-direction: column; gap: 8px; }
+#req-section { display: flex; flex-direction: column; gap: 8px; }
+.req { border: 1px solid rgba(255,181,71,.45); border-radius: 10px; padding: 10px 12px; background: rgba(255,181,71,.06); }
+.req-cap { font-size: 12px; color: var(--confirm); margin-top: 2px; }
+.req-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.btn.allow { color: var(--allow); border-color: rgba(47,213,152,.5); }
+.btn.confirm { color: var(--confirm); border-color: rgba(255,181,71,.5); }
+.primary-lite { color: var(--accent); border-color: var(--accent); }
+.device.off { opacity: .55; }
+.site-state.disabled { color: var(--danger); }
+.role-chip { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 2px 6px; border-radius: 5px; }
+.role-chip.owner { color: var(--accent); background: rgba(56,214,255,.1); }
+.role-chip.guest { color: var(--accent-2); background: rgba(124,107,255,.14); }
+.dev-caps { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.add-device { display: flex; flex-wrap: wrap; gap: 6px; }
+.add-device input, .add-device select, .perm-select {
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; min-width: 0;
+}
+.add-device input { flex: 1 1 160px; }
+.add-device input:focus, .perm-select:focus { outline: none; border-color: var(--accent); }
+.new-device { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; background: rgba(56,214,255,.05); }
+.new-device p { margin: 0 0 6px; }
+.new-device pre { margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; background: var(--bg-2); padding: 8px; border-radius: 6px; }
+.row-end { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.perm-table { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.perm-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.perm-label { display: flex; flex-direction: column; min-width: 0; }
+.perm-cap { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.perm-why { font-size: 10.5px; }
+.perm-select { padding: 3px 6px; font-size: 11.5px; }

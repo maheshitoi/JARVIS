@@ -271,6 +271,46 @@ For HTTP transport, run `python mcp_servers/website_monitor.py --http`, which se
 
 ---
 
+### Your other project (MCP URL)
+
+`access.yaml → mcp.servers.project` is a ready slot for another project's MCP server. It stays off
+until you set the URL:
+
+1. In `.env`: `PROJECT_MCP_URL=https://your-project/mcp` (and `PROJECT_MCP_TOKEN=` if it needs one).
+2. Optional: in `access.yaml` set `title:` to the project's name, adjust `about:` (tells JARVIS what
+   it holds), and list read-only tools in `allowed_tools`. MCP tools skip JARVIS's approval gate.
+3. Restart `python agent.py dev`.
+
+Then "give me the update", "today's report" or "how many bookings this week?" are answered from
+the project's live tools. For more projects, copy the `project:` block under a new name with its own
+`${..._MCP_URL}` variable.
+
+### Database reports (PostgreSQL, read-only)
+
+Ask things like *"give me today's sales report"*, *"how many orders are pending?"* or *"what's the
+update on booking 1042?"*. JARVIS reads the table list (`database_tables`), writes **one SELECT**
+that computes the answer in SQL (`database_query`) and reads back the exact figures.
+*"What did you do yesterday?"* uses `activity_report` (JARVIS's own log).
+
+1. Create a read-only login (once, as a PostgreSQL admin):
+   ```sql
+   CREATE ROLE jarvis_ro LOGIN PASSWORD 'choose-a-strong-one';
+   GRANT CONNECT ON DATABASE your_database TO jarvis_ro;
+   GRANT USAGE ON SCHEMA public TO jarvis_ro;
+   GRANT SELECT ON ALL TABLES IN SCHEMA public TO jarvis_ro;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO jarvis_ro;
+   ```
+2. In `.env`: `JARVIS_DB_URL=postgresql://jarvis_ro:choose-a-strong-one@localhost:5432/your_database`
+3. Restart `python agent.py dev`. Tune `capabilities.database` in `access.yaml` (schemas, row limit,
+   timeout, `hide_columns` for passwords/tokens; set `query: confirm` to approve every query).
+
+Every query runs in a READ ONLY transaction with a timeout; only single SELECT/WITH statements are
+accepted, and admin functions and hidden columns are refused. The read-only login is still the
+real protection — don't point JARVIS at a superuser.
+
+**Users / guest devices** get `database.*` and `websites.report` only when you grant them on the
+dashboard (Devices → Permissions). Until then, asking sends you a permission request.
+
 ## 6. Adding your own tool
 
 1. Write it in `jarvis/tools/<area>_tools.py`:
@@ -397,3 +437,28 @@ Copy the `dist\JarvisDevice` folder to the device, put its `device.yaml` next to
 **4. The device decides what JARVIS may do on it.** The `permissions:` and `apps:` in that device's `device.yaml` (see [device.example.yaml](device_app/device.example.yaml)) are enforced **on the device**, whatever the server says. `confirm` shows an Approve/Deny popup on that device. Both checks apply: an action must be allowed by `access.yaml` **and** by the device.
 
 No AI keys go on the devices. The server does the thinking and the device only runs the actions. Phones can't run the app; they keep using the browser dashboard (voice, screen sharing, opening links on the phone).
+
+### 10.1 Permissions for every device
+
+Each action from a device has to pass **three layers**:
+
+| Layer | Where | Who controls it |
+|---|---|---|
+| 1. Global ceiling | `access.yaml` | You. `deny` here means deny on every device. |
+| 2. Per-device level | `data/devices.json`, edited in the dashboard **Devices** tab, by voice, or via the API | You. It can only be **stricter** than layer 1, never looser. |
+| 3. Device consent | `device.yaml` on that device | Whoever uses that device. |
+
+**Defaults:** owner devices inherit `access.yaml`. Guest devices inherit `access.yaml` for actions on their own device (screen, windows, keyboard, apps, websites, PC info). Their **own memory** stays off until you grant it. Guests can **never** be given email, WhatsApp, your contacts, social media, phone or device management. The server refuses those grants.
+
+**Permission requests:** when a device tries something its per-device level denies, JARVIS tells the user "the owner has been asked". You then see the request in the **Devices** tab with a badge: **Allow**, **Ask each time** (an Approve/Deny popup appears on that device every time) or **Deny**. A grant applies immediately; the user just asks again.
+
+**Device intelligence (owner only, `devices.*` in access.yaml):**
+- "Which devices are online?", "Any permission requests?" → `list_devices`
+- "Allow Ravi's PC to use the keyboard" → `set_device_permission` (needs your approval)
+- "Approve that request" → `answer_permission_request` (needs your approval)
+
+JARVIS never changes permissions on its own, and never because a device user asked.
+
+**Memory:** you share one memory (`data/memory.json`) across the dashboard and your owner devices. Each guest device has its **own** memory in `data/memory/<device id>.json`. It never sees yours, and you can grant or deny it per device.
+
+**Dashboard Devices tab:** add a device (it shows the `device.yaml` to copy, and the key only once), see who's online, enable/disable or remove a device, and set each capability per device.

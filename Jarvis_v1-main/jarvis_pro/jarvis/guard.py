@@ -23,7 +23,7 @@ from typing import Any, AsyncIterator
 from livekit import rtc
 from livekit.agents import RunContext, ToolError, get_job_context
 
-from . import audit
+from . import audit, devices
 from .access import ALLOW, CONFIRM, DENY, AccessPolicy, get_policy
 from .device_link import DEVICE_CAPS
 
@@ -48,6 +48,7 @@ class SessionData:
     # Set when the session comes from the JARVIS Device app: device tools run on THIS participant.
     device_identity: str | None = None
     device_name: str | None = None
+    device_id: str | None = None  # registry id: per-device permissions + a guest's own memory
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -145,6 +146,33 @@ async def _request_approval(
     raise ToolError("This action needs dashboard approval. Ask Boss to open the dashboard.")
 
 
+async def _device_level(event: dict[str, Any], device_id: str, capability: str,
+                        global_level: str, summary: str) -> str:
+    """Apply the per-device layer (devices.json). Returns the effective level or raises.
+    A per-device deny on something that could be granted queues a permission request."""
+    device = devices.get(device_id)
+    if device is None or not device.get("enabled", True):
+        await _log(event, "blocked", reason="device removed or disabled")
+        raise ToolError("This device has been disabled by the owner. Nothing can be done from it right now.")
+    level, source = devices.effective(device, capability, global_level)
+    event["level"] = level
+    if level != DENY:
+        return level
+    if source == "not_grantable":
+        await _log(event, "blocked", reason=f"not available to {device['role']} devices")
+        raise ToolError("That isn't available on this device. You can only act on this device itself.")
+    if source == "access.yaml":
+        await _log(event, "blocked")
+        raise ToolError(f"Access denied: '{capability}' is turned off for every device in access.yaml.")
+    req = devices.request_permission(device, capability, summary)
+    await _log(event, "blocked", reason=f"permission requested ({req['id']})")
+    raise ToolError(
+        f"PERMISSION REQUESTED: this device ('{device['name']}') isn't allowed '{capability}' yet. "
+        "The owner has been asked on their dashboard. Tell the user briefly; they can ask again "
+        "once it's granted. Don't retry now."
+    )
+
+
 def _who(policy: AccessPolicy, mode: str) -> str:
     return "The user" if mode == "guest" else policy.owner_name
 
@@ -173,16 +201,18 @@ async def action(
         **({"device": getattr(userdata, "device_name", None)} if device_identity else {}),
     }
 
-    if mode == "guest" and capability not in DEVICE_CAPS:
-        # A guest's session may only act on the guest's own device — never on Boss's accounts.
-        await _log(event, "blocked", reason="guest device")
-        raise ToolError("That isn't available on this device. You can only act on this device itself.")
-
     if level != DENY and device_identity and is_host_only(capability) and capability not in DEVICE_CAPS:
         # Device app session: host-only tools that can't run on the device (e.g. WhatsApp Desktop
         # of the home PC) are never run on the home PC on its behalf.
         await _log(event, "blocked", reason="command came from another device")
         raise ToolError("That only works on the home PC itself, not from this device. Say so briefly.")
+
+    device_id = getattr(userdata, "device_id", None)
+    if mode == "guest" and not device_id:
+        await _log(event, "blocked", reason="guest without a registered device")
+        raise ToolError("That isn't available here.")
+    if device_id:
+        level = await _device_level(event, device_id, capability, level, summary)
 
     if level != DENY and is_host_only(capability) and owner_is_remote():
         # Defence in depth: the tool shouldn't even be offered to a remote device.

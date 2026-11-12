@@ -19,14 +19,10 @@ from typing import Any
 from livekit import rtc
 from livekit.agents import RunContext, ToolError, get_job_context
 
+from .devices import DEVICE_CAPS  # noqa: F401  (re-exported)
+
 DEVICE_RPC_PREFIX = "jarvis.device."
 SCREENSHOT_TOPIC = "jarvis.screenshot"
-
-# Capabilities the device app can perform on its own machine.
-DEVICE_CAPS = frozenset({
-    "system.info", "system.open_url", "system.open_app",
-    "screen.view", "screen.windows", "screen.control",
-})
 
 _pending: dict[str, asyncio.Future[bytes]] = {}
 

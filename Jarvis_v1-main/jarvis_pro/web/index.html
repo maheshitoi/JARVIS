@@ -77,6 +77,7 @@
         <button class="tab active" data-tab="conversation" role="tab">Conversation</button>
         <button class="tab" data-tab="activity" role="tab">Activity <span id="activity-badge" class="badge" hidden>0</span></button>
         <button class="tab" data-tab="websites" role="tab">Websites</button>
+        <button class="tab" data-tab="devices" role="tab">Devices <span id="devices-badge" class="badge" hidden>0</span></button>
       </div>
       <div id="tab-conversation" class="tab-body transcript">
         <div class="empty muted">Your conversation with JARVIS appears here.</div>
@@ -93,6 +94,34 @@
         <h3 class="reports-title">Daily reports</h3>
         <div id="report-list" class="report-list"></div>
         <p class="muted small">Add sites in <code>access.yaml → websites.sites</code>. Keep <code>workers/site_monitor.py</code> running for uptime history and the daily report.</p>
+      </div>
+      <div id="tab-devices" class="tab-body devices" hidden>
+        <div id="req-section" hidden>
+          <h3 class="dev-h">Permission requests</h3>
+          <div id="req-list" class="req-list"></div>
+        </div>
+        <div class="sites-head">
+          <h3 class="dev-h">Devices</h3>
+          <button id="btn-add-device" class="btn small-btn">Add device</button>
+        </div>
+        <form id="add-device" class="add-device" hidden autocomplete="off">
+          <input id="add-name" placeholder="Device name, e.g. Ravi's PC" maxlength="60" required>
+          <select id="add-role" aria-label="Role">
+            <option value="guest">Guest: only its own device</option>
+            <option value="owner">Owner: my device, full JARVIS</option>
+          </select>
+          <button class="btn small-btn primary-lite">Create</button>
+        </form>
+        <div id="new-device" class="new-device" hidden>
+          <p class="small">Put this in <code>device.yaml</code> next to JarvisDevice.exe on <b id="new-device-name"></b>. The key is shown only once.</p>
+          <pre id="new-device-yaml" class="mono"></pre>
+          <div class="row-end">
+            <button id="btn-copy-yaml" class="btn small-btn">Copy</button>
+            <button id="btn-close-yaml" class="btn small-btn">Done</button>
+          </div>
+        </div>
+        <div id="device-list" class="device-list"></div>
+        <p class="muted small">An action needs all three layers: <code>access.yaml</code> (ceiling for all devices), this device's level (set here), and the device's own <code>device.yaml</code>. Guests can only ever use their own device and their own memory.</p>
       </div>
     </aside>
   </main>

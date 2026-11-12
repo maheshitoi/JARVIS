@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from typing import Any
 
@@ -25,12 +26,42 @@ def _expand(value: Any) -> Any:
     return value
 
 
+_UNSET = re.compile(r"\$\{?\w+\}?")  # a ${VAR} that .env didn't fill in
+
+
+def _configured_url(spec: dict[str, Any]) -> str | None:
+    """The server's URL once its ${VAR}s are filled in from .env; None while it's still blank."""
+    url = str(spec.get("url") or "").strip()
+    return url if url and not _UNSET.search(url) else None
+
+
+def _headers(spec: dict[str, Any]) -> dict[str, str] | None:
+    """Drop headers whose ${VAR} isn't set yet (e.g. no token needed), instead of sending the placeholder."""
+    out = {}
+    for k, v in (spec.get("headers") or {}).items():
+        v = str(v).strip()
+        if v and not _UNSET.search(v) and v.lower() not in ("bearer", "token"):
+            out[str(k)] = v
+    return out or None
+
+
+def describe_for_llm(policy: AccessPolicy) -> str:
+    """What each connected MCP server is for, so JARVIS knows when to use its tools."""
+    lines = []
+    for name, _srv in _build_servers(policy, quiet=True):
+        spec = (policy.section("mcp").get("servers") or {}).get(name) or {}
+        about = " ".join(str(spec.get("about") or "").split())
+        if about:
+            lines.append(f"- {spec.get('title') or name}: {about}")
+    return "\n".join(lines)
+
+
 def build_toolsets(policy: AccessPolicy) -> list[mcp.MCPToolset]:
     """One MCPToolset per enabled server; the agent connects to them when the session starts."""
     return [mcp.MCPToolset(id=f"mcp_{name}", mcp_server=srv) for name, srv in _build_servers(policy)]
 
 
-def _build_servers(policy: AccessPolicy) -> list[tuple[str, mcp.MCPServer]]:
+def _build_servers(policy: AccessPolicy, *, quiet: bool = False) -> list[tuple[str, mcp.MCPServer]]:
     if policy.level("mcp.use") == DENY:
         return []
     servers: list[tuple[str, mcp.MCPServer]] = []
@@ -40,9 +71,14 @@ def _build_servers(policy: AccessPolicy) -> list[tuple[str, mcp.MCPServer]]:
         spec = _expand(spec)
         allowed = spec.get("allowed_tools") or None
         try:
-            if spec.get("url"):
+            if "url" in spec:
+                url = _configured_url(spec)
+                if url is None:  # slot is ready, URL not given yet (.env)
+                    if not quiet:
+                        logger.info("MCP server %s: no URL set yet, skipped", name)
+                    continue
                 servers.append((name, mcp.MCPServerHTTP(
-                    url=spec["url"], headers=spec.get("headers") or None, allowed_tools=allowed,
+                    url=url, headers=_headers(spec), allowed_tools=allowed,
                     timeout=float(spec.get("timeout", 10)), client_session_timeout_seconds=90,
                 )))
             elif spec.get("command"):
@@ -57,7 +93,8 @@ def _build_servers(policy: AccessPolicy) -> list[tuple[str, mcp.MCPServer]]:
             else:
                 logger.warning("MCP server %s has neither url nor command — skipped", name)
                 continue
-            logger.info("MCP server enabled: %s", name)
+            if not quiet:
+                logger.info("MCP server enabled: %s", name)
         except Exception:  # noqa: BLE001 — a broken server must not stop JARVIS
             logger.exception("could not set up MCP server %s", name)
     return servers

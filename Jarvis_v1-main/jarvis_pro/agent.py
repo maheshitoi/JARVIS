@@ -29,7 +29,9 @@ from jarvis import audit, config  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
 from jarvis import device_link  # noqa: E402
 from jarvis.agents import CallerAgent, GuestAgent, OwnerAgent  # noqa: E402
-from jarvis.guard import DEVICE_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData  # noqa: E402
+from jarvis.guard import (  # noqa: E402
+    DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData,
+)
 from jarvis.mcp_client import build_toolsets  # noqa: E402
 
 logger = logging.getLogger("jarvis")
@@ -44,6 +46,8 @@ def realtime_model() -> google.realtime.RealtimeModel:
         extra["thinking_config"] = genai_types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET)
     return google.realtime.RealtimeModel(
         model=config.REALTIME_MODEL,
+        # google-genai 3.x defaults to API "v1", where the Live endpoint returns 404.
+        api_version="v1beta",
         voice=config.VOICE,
         temperature=config.TEMPERATURE,
         # Decide faster that you've stopped talking (default waits noticeably longer).
@@ -100,15 +104,16 @@ async def _start_device(ctx: JobContext, participant: rtc.RemoteParticipant) -> 
     # Attributes are set by server.py in the signed token; the device can't change them.
     role = participant.attributes.get(OWNER_ROLE_ATTR)
     name = participant.attributes.get(DEVICE_NAME_ATTR) or "this device"
-    if role not in ("owner", "guest"):
-        logger.warning("device %s has no valid role; refusing", participant.identity)
+    if role not in ("owner", "guest") or not participant.attributes.get(DEVICE_ID_ATTR):
+        logger.warning("device %s has no valid role/id; refusing", participant.identity)
         ctx.shutdown()
         return
     device_link.install(ctx.room)
     audit.record({"capability": "device.connect", "summary": f"{name} connected ({role})", "status": role})
     session = AgentSession(
         llm=realtime_model(),
-        userdata=SessionData(mode=role, device_identity=participant.identity, device_name=name),
+        userdata=SessionData(mode=role, device_identity=participant.identity, device_name=name,
+                             device_id=participant.attributes.get(DEVICE_ID_ATTR)),
     )
     agent = (OwnerAgent(policy, toolsets=build_toolsets(policy), device_name=name) if role == "owner"
              else GuestAgent(policy, device_name=name))

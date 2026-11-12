@@ -8,6 +8,7 @@ google-genai>=1.0
 python-dotenv
 pyyaml
 httpx
+psycopg[binary]>=3.2   # PostgreSQL database reports (read-only)
 
 # Dashboard server
 fastapi

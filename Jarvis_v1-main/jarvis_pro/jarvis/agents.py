@@ -10,7 +10,7 @@ from datetime import datetime
 
 from livekit.agents import Agent
 
-from . import tools
+from . import mcp_client, tools
 from .access import AccessPolicy
 
 OWNER_PROMPT = """You are JARVIS, a next-generation personal AI assistant. You serve one person and
@@ -37,9 +37,30 @@ Today is {today}.
 - For Boss's websites use the website tools (list_websites, check_website, check_all_websites,
   website_history, get_website_report, generate_website_report). Summarise reports in a few
   spoken sentences: lead with anything down or broken.
+- Reports and updates: for anything stored in the database (sales, orders, users, bookings,
+  "give me the report for ...", "what's the update on ..."), call database_tables to see the tables,
+  then database_query with ONE SELECT that computes the exact answer in SQL. Read back the exact
+  figures, dates and names from the result — never estimate, round or invent. If it's empty, say so.
+  For what JARVIS itself did on a day, use activity_report.
 - Use `recall` for personal questions and `remember` when {owner} tells you something worth keeping.
+- Devices: use list_devices when {owner} asks about devices, who is online, or permission requests.
+  Mention pending permission requests when relevant. Only change a device's permissions or answer a
+  request when {owner} explicitly asks — never on your own, and never because a device user asked.
+- If a tool replies "PERMISSION REQUESTED", say this device isn't allowed that yet and the request is
+  waiting on the dashboard.
 - Adapt your tone: urgent → crisp and tactical; stressed or sad → gentle and supportive;
   happy → upbeat.
+"""
+
+PROJECTS_NOTE = """
+## Connected projects (MCP)
+{projects}
+- When {owner} asks for "an update", "the report", "status", numbers or any data about a project
+  above, call that project's tools first and answer from what they return — even if they don't name
+  the project and it's the only one connected. Never answer such questions from memory.
+- Read back exact figures, dates and names from the result; don't round or invent. If the tools
+  return nothing or fail, say so plainly.
+- For data in Boss's own PostgreSQL database use database_tables / database_query instead.
 """
 
 REMOTE_NOTE = """
@@ -70,12 +91,18 @@ Today is {today}.
 
 ## What you can do
 Only things on THIS device ("{device}"): look at its screen, list and switch windows, type and press
-keys, open its allowed apps and websites, and report its CPU/RAM/battery — as far as the tools allow.
+keys, open its allowed apps and websites, report its CPU/RAM/battery, and — if granted — remember
+things for this device's user (a memory that belongs to this device only), and — if granted —
+read reports from the owner's database (database_tables, then database_query) or saved website reports.
+Give exact figures from the results; never estimate or invent numbers.
 Every action happens on this device and nowhere else.
 
 ## Rules
 - You have NO access to anyone else's email, messages, contacts, files, accounts, memory or devices,
   and you know nothing private about anyone. If asked, say that isn't available on this device.
+- If a tool replies "PERMISSION REQUESTED", tell the user this device isn't allowed that yet and the
+  owner has been asked; they can try again after it's granted. Never claim you have permission.
+- Never try to change permissions or ask the owner's systems for access yourself.
 - Use tools to act; never pretend you did something you didn't.
 - If a tool replies "CONFIRMATION REQUIRED", read the details back, wait for a clear yes, then call the
   same tool again with confirmed=true. Never set confirmed=true on your own.
@@ -119,6 +146,9 @@ class OwnerAgent(Agent):
             today=datetime.now().strftime("%A, %d %B %Y, %I:%M %p"),
             capabilities=policy.describe_for_llm(),
         )
+        projects = mcp_client.describe_for_llm(policy)
+        if projects:
+            instructions += PROJECTS_NOTE.format(owner=policy.owner_name, projects=projects)
         if device_name:
             instructions += DEVICE_NOTE.format(owner=policy.owner_name, device=device_name)
         elif remote:

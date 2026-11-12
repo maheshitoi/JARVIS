@@ -116,6 +116,35 @@ capabilities:
       ssl_warn_days: 14 # warn when the certificate expires within N days
 
   # -------------------------------------------------------------------
+  # DATABASE — read-only reports from your PostgreSQL database
+  # Connection: JARVIS_DB_URL in .env (use a READ-ONLY login, see README).
+  # JARVIS reads the table list, writes one SELECT for your question and
+  # reads back the exact result. It can never change data.
+  # -------------------------------------------------------------------
+  database:
+    description: "Read-only reports and updates from your PostgreSQL database"
+    risk: medium
+    enabled: true
+    actions:
+      schema: allow # see table and column names
+      query: allow # run a read-only SELECT (set "confirm" to approve each query)
+    schemas: ["public"] # only tables in these schemas are shown
+    max_rows: 200 # most rows one query returns to JARVIS
+    timeout_seconds: 15 # a query running longer is stopped
+    hide_columns: # never shown or queried (add your own sensitive columns)
+      [password, passwd, password_hash, token, access_token, refresh_token, secret, api_key, otp, salt]
+
+  # -------------------------------------------------------------------
+  # REPORTS — JARVIS's own activity log ("what did you do today?")
+  # -------------------------------------------------------------------
+  reports:
+    description: "Reports from JARVIS's own activity log"
+    risk: low
+    enabled: true
+    actions:
+      activity: allow # exact list + totals of actions on a given day
+
+  # -------------------------------------------------------------------
   # MCP — Model Context Protocol servers JARVIS connects to for extra tools.
   # Tools from MCP servers are NOT individually approved by JARVIS's gate:
   # only add servers you trust, and use allowed_tools to limit them.
@@ -132,6 +161,17 @@ capabilities:
         command: "python" # "python" = the same Python that runs JARVIS
         args: ["mcp_servers/website_monitor.py"]
         allowed_tools: [] # empty = all tools of this server
+      project: # YOUR OTHER PROJECT — reports, updates and data
+        enabled: true # stays off by itself until PROJECT_MCP_URL is set in .env
+        title: "TeleDoctor" # the name you'll use when asking, e.g. "TeleDoctor"
+        url: "${PROJECT_MCP_URL}" # the MCP URL (streamable HTTP), set in .env
+        headers: { Authorization: "Bearer ${PROJECT_MCP_TOKEN}" } # dropped when no token is set
+        timeout: 20
+        allowed_tools: [] # empty = all its tools; list names to limit (recommended: read-only ones)
+        about: >-
+          The live TeleDoctor telemedicine platform (read-only admin access). Use its tools for ANY
+          request about TeleDoctor: dashboard stats/earnings, doctors, doctor queues, consultations,
+          and user look-ups. Always fetch fresh data with a tool; never answer from memory.
       # Example of a remote MCP server (streamable HTTP):
       # analytics:
       #   enabled: false
@@ -231,3 +271,17 @@ capabilities:
       enabled: false
       actions:
         post: confirm
+
+  # -------------------------------------------------------------------
+  # DEVICES — the JARVIS Device app on other PCs (see README section 10)
+  # Per-device permissions live in data/devices.json and are managed on the
+  # dashboard (Devices tab), by voice, or with manage_devices.py. They can
+  # only be STRICTER than this file. Guests can never get devices.*.
+  # -------------------------------------------------------------------
+  devices:
+    description: "Know every device using JARVIS; manage their permissions and requests"
+    risk: high
+    enabled: true
+    actions:
+      view: allow # list devices, who's online, pending permission requests
+      manage: allow # change a device's permissions / answer requests

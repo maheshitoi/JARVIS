@@ -29,6 +29,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request  # 
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from livekit import api  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 from jarvis import audit, config, devices, websites  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
@@ -169,6 +170,102 @@ def device_token(request: Request, x_device_key: str = Header(default="")) -> di
                   "status": "ok"})
     return {"url": url, "token": jwt, "room": room, "identity": identity,
             "device": {"id": device["id"], "name": device["name"], "role": device["role"]}}
+
+
+# ------------------------------------------------- devices & permissions --
+class NewDevice(BaseModel):
+    name: str
+    role: str = "guest"
+
+
+class PermissionChange(BaseModel):
+    capability: str
+    level: str  # allow | confirm | deny | default
+
+
+class Decision(BaseModel):
+    decision: str  # allow | confirm | deny
+
+
+class Enabled(BaseModel):
+    enabled: bool
+
+
+def _device_or_404(device_id: str) -> dict:
+    device = devices.get(device_id)
+    if device is None:
+        raise HTTPException(404, "No such device")
+    return device
+
+
+@app.get("/api/devices", dependencies=[Depends(check_key)])
+async def devices_overview() -> dict:
+    policy = get_policy()
+    online = await devices.online_ids()
+    rows = []
+    for d in devices.all_devices():
+        rows.append({**d, "online": d["id"] in online, "permissions_table": devices.permission_table(d, policy)})
+    return {"devices": rows, "requests": devices.requests("pending"),
+            "history": devices.requests(None)[:30]}
+
+
+@app.post("/api/devices", dependencies=[Depends(check_key)])
+def devices_add(body: NewDevice, request: Request) -> dict:
+    try:
+        device, key = devices.add(body.name, body.role)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    # The device reaches the server at the same address this dashboard is using.
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or "127.0.0.1:8000"
+    server_url = f"{proto}://{host}"
+    audit.record({"capability": "devices.manage", "summary": f"Registered {device['name']} ({device['role']})",
+                  "status": "done", "approved_by": "dashboard"})
+    yaml_text = (f"# JARVIS Device app config for: {device['name']}  (role: {device['role']})\n"
+                 f"server_url: \"{server_url}\"\ndevice_key: \"{key}\"\n")
+    return {"device": device, "device_yaml": yaml_text}
+
+
+@app.delete("/api/devices/{device_id}", dependencies=[Depends(check_key)])
+def devices_remove(device_id: str) -> dict:
+    device = _device_or_404(device_id)
+    devices.remove(device_id)
+    audit.record({"capability": "devices.manage", "summary": f"Removed {device['name']}", "status": "done",
+                  "approved_by": "dashboard"})
+    return {"ok": True}
+
+
+@app.post("/api/devices/{device_id}/enabled", dependencies=[Depends(check_key)])
+def devices_enable(device_id: str, body: Enabled) -> dict:
+    device = _device_or_404(device_id)
+    devices.set_enabled(device_id, body.enabled)
+    audit.record({"capability": "devices.manage", "status": "done", "approved_by": "dashboard",
+                  "summary": f"{'Enabled' if body.enabled else 'Disabled'} {device['name']}"})
+    return {"ok": True}
+
+
+@app.post("/api/devices/{device_id}/permissions", dependencies=[Depends(check_key)])
+def devices_permission(device_id: str, body: PermissionChange) -> dict:
+    device = _device_or_404(device_id)
+    try:
+        updated = devices.set_permission(device_id, body.capability, body.level)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    audit.record({"capability": "devices.manage", "status": "done", "approved_by": "dashboard",
+                  "summary": f"{device['name']}: {body.capability} = {body.level}"})
+    return {"device": updated, "permissions_table": devices.permission_table(updated, get_policy())}
+
+
+@app.post("/api/permission-requests/{request_id}", dependencies=[Depends(check_key)])
+def permission_decide(request_id: str, body: Decision) -> dict:
+    try:
+        req = devices.resolve_request(request_id, body.decision)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    audit.record({"capability": "devices.manage", "status": "done", "approved_by": "dashboard",
+                  "summary": f"{req['status'].capitalize()} {req['device_name']}: {req['capability']}"
+                             + (f" ({body.decision})" if body.decision != "deny" else "")})
+    return {"request": req}
 
 
 @app.get("/api/access", dependencies=[Depends(check_key)])
