@@ -162,7 +162,7 @@ capabilities:
         args: ["mcp_servers/website_monitor.py"]
         allowed_tools: [] # empty = all tools of this server
       project: # YOUR OTHER PROJECT — reports, updates and data
-        enabled: true # stays off by itself until PROJECT_MCP_URL is set in .env
+        enabled: false # OFF: PROJECT_MCP_URL currently answers "Not Found" on initialize — fix the URL, then set true
         title: "TeleDoctor" # the name you'll use when asking, e.g. "TeleDoctor"
         url: "${PROJECT_MCP_URL}" # the MCP URL (streamable HTTP), set in .env
         headers: { Authorization: "Bearer ${PROJECT_MCP_TOKEN}" } # dropped when no token is set
@@ -172,6 +172,18 @@ capabilities:
           The live TeleDoctor telemedicine platform (read-only admin access). Use its tools for ANY
           request about TeleDoctor: dashboard stats/earnings, doctors, doctor queues, consultations,
           and user look-ups. Always fetch fresh data with a tool; never answer from memory.
+      givecharity: # GiveCharity admin reports (read-only)
+        enabled: true
+        title: "GiveCharity"
+        url: "${GIVECHARITY_MCP_URL}"
+        headers: { Authorization: "Bearer ${GIVECHARITY_MCP_TOKEN}" }
+        timeout: 20
+        allowed_tools: [] # all 4 tools are read-only reports
+        about: >-
+          The live GiveCharity (GC) donation platform, admin read-only reports. Use its tools for ANY
+          request about GiveCharity or "GC": platform overview (campaign counts by status), daily,
+          monthly or date-range stats (donations, amounts in INR, dates in IST). Always fetch fresh
+          data with a tool; never answer from memory.
       # Example of a remote MCP server (streamable HTTP):
       # analytics:
       #   enabled: false
