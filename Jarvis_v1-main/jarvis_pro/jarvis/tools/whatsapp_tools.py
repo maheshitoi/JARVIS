@@ -1,4 +1,4 @@
-"""WhatsApp Desktop control (Windows).
+"""WhatsApp control (Windows): WhatsApp Desktop or WhatsApp Web in a browser.
 
 WhatsApp has no official API for personal accounts, so JARVIS operates the
 WhatsApp Desktop app on your screen the way you would: it focuses the window,
@@ -22,6 +22,7 @@ import asyncio
 import ctypes
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -89,33 +90,63 @@ def _paste(text: str) -> None:
     pyautogui.hotkey("ctrl", "v")
 
 
-def _find_window():
+# Which WhatsApp to drive: "auto" (default: whichever is open, else Desktop, else Web),
+# "desktop" (only the app) or "web" (only web.whatsapp.com in your browser). Set in .env.
+_MODE = (os.environ.get("JARVIS_WHATSAPP_MODE") or "auto").strip().lower()
+_WEB_URL = "https://web.whatsapp.com/"
+# Browser windows are titled after the active tab: "WhatsApp - Google Chrome", "(3) WhatsApp - Microsoft Edge"
+_WEB_TITLE = re.compile(r"^(\(\d+\)\s*)?WhatsApp\b.* - ", re.I)
+_kind = "desktop"  # what _focus() found last: "desktop" or "web"
+
+
+def _find_window(kind: str | None = None):
+    """The WhatsApp window (Desktop app or a browser whose active tab is WhatsApp Web)."""
     import pygetwindow as gw
 
-    for w in gw.getAllWindows():
-        if w.title.strip() == "WhatsApp" or w.title.startswith("WhatsApp"):
-            return w
+    global _kind
+    wins = [w for w in gw.getAllWindows() if w.title and w.width > 200]
+    if kind in (None, "desktop"):
+        for w in wins:
+            if w.title.strip() == "WhatsApp" or w.title.startswith("WhatsApp Beta"):
+                _kind = "desktop"
+                return w
+    if kind in (None, "web"):
+        for w in wins:
+            t = w.title.strip()
+            if _WEB_TITLE.match(t) and "Visual Studio Code" not in t:
+                _kind = "web"
+                return w
+    return None
+
+
+def _wait_for(kind: str, seconds: float):
+    for _ in range(int(seconds / 0.5)):
+        time.sleep(0.5)
+        win = _find_window(kind)
+        if win:
+            return win
     return None
 
 
 def _focus():
-    """Open (if needed) and bring WhatsApp Desktop to the front. Returns the window."""
+    """Open (if needed) and bring WhatsApp (Desktop or Web) to the front. Returns the window."""
     import mss
     import pyautogui
 
     with mss.mss():  # makes the process DPI-aware so window coords match screen pixels
         pass
-    win = _find_window()
+    win = _find_window(None if _MODE == "auto" else _MODE)
     if win is None:
-        _start("whatsapp:")
-        for _ in range(30):
-            time.sleep(0.5)
-            win = _find_window()
-            if win:
-                break
-        else:
-            raise ToolError("WhatsApp Desktop didn't open. Is it installed and logged in?")
-        time.sleep(2.5)
+        if _MODE in ("auto", "desktop"):
+            _start("whatsapp:")
+            win = _wait_for("desktop", 15 if _MODE == "desktop" else 6)
+        if win is None and _MODE in ("auto", "web"):
+            _start(_WEB_URL)
+            win = _wait_for("web", 15)
+        if win is None:
+            raise ToolError("Couldn't open WhatsApp. Open WhatsApp Desktop, or web.whatsapp.com in your browser "
+                            "(logged in, as the active tab), and try again.")
+        time.sleep(4 if _kind == "web" else 2.5)
     if win.isMinimized:
         win.restore()
     pyautogui.press("alt")  # lets Windows hand focus to another app
@@ -145,7 +176,8 @@ def _capture(win) -> tuple[bytes, dict[str, int]]:
 def _vision(png: bytes, prompt: str, as_json: bool = False) -> Any:
     resp = generate(
         [types.Part.from_bytes(data=png, mime_type="image/png"),
-         "This is a screenshot of the WhatsApp Desktop app. " + prompt],
+         "This is a screenshot of WhatsApp (the Desktop app, or WhatsApp Web in a browser window — "
+         "ignore the browser's own tabs and toolbars). " + prompt],
         types.GenerateContentConfig(response_mime_type="application/json") if as_json else None,
     )
     text = resp.text or ""
@@ -198,7 +230,15 @@ def _open_chat(chat: str):
     """Open a conversation by contact name or phone number and verify it's the right one."""
     win = _focus()
     number = _phone_for(chat)
-    if number:
+    if number and _kind == "web":
+        import pyautogui
+
+        pyautogui.hotkey("ctrl", "l")  # browser address bar of the WhatsApp tab
+        _paste(f"{_WEB_URL}send?phone={number}")
+        pyautogui.press("enter")
+        time.sleep(8)  # WhatsApp Web reloads before the chat opens
+        win = _focus()
+    elif number:
         _start(f"whatsapp://send?phone={number}")
         time.sleep(2.5)
         win = _focus()

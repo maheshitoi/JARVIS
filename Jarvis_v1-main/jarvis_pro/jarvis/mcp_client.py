@@ -79,6 +79,7 @@ def _build_servers(policy: AccessPolicy, *, quiet: bool = False) -> list[tuple[s
                     continue
                 servers.append((name, mcp.MCPServerHTTP(
                     url=url, headers=_headers(spec), allowed_tools=allowed,
+                    transport_type=spec.get("transport") or "streamable_http",
                     timeout=float(spec.get("timeout", 10)), client_session_timeout_seconds=90,
                 )))
             elif spec.get("command"):
