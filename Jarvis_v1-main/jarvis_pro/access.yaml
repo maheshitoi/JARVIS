@@ -65,6 +65,18 @@ capabilities:
       settings: "ms-settings:"
 
   # -------------------------------------------------------------------
+  # MEDIA — play music on YouTube, pause/skip it, close browser tabs (this PC)
+  # -------------------------------------------------------------------
+  media:
+    description: "Play music on YouTube, pause/skip/volume, close browser tabs"
+    risk: medium
+    enabled: true
+    actions:
+      play: allow # "play Believer on YouTube" — opens and plays it in your browser
+      control: allow # pause / resume / next / previous / volume (media keys)
+      close_tabs: allow # close the current tab or ALL browser windows (set "confirm" to approve each time)
+
+  # -------------------------------------------------------------------
   # SCREEN — JARVIS sees (and optionally controls) your Windows screen
   # -------------------------------------------------------------------
   screen:
@@ -226,6 +238,27 @@ capabilities:
     transfer_number: "" # where "transfer" forwards to, e.g. "+919876543210"
     allowed_country_codes: ["+91", "+1"] # outbound calls only to these prefixes
     email_messages_to_owner: true # also email you each message (needs email enabled)
+
+  # -------------------------------------------------------------------
+  # CUSTOMER CALLS — the AI talks to your customers (inbound + outbound)
+  #   Knowledge: data/business.yaml   Customers: data/customers.json
+  #   Call log:  data/customer_calls.jsonl (transcript + AI summary)
+  #   When enabled, ALL unknown inbound callers get the customer assistant
+  #   instead of the phone receptionist above.
+  # -------------------------------------------------------------------
+  customer:
+    description: "Talk to customers on the phone: answer calls, call them to inform"
+    risk: high
+    enabled: true
+    actions:
+      call_out: confirm # JARVIS calls a customer (dashboard/CLI calls count as your approval)
+      read_calls: allow # read the customer call log
+      log: allow # (customer side) record the call outcome
+      callback: allow # (customer side) arrange a staff callback
+      transfer: allow # (customer side) live transfer to escalation.transfer_number
+      end_call: allow # (customer side) hang up
+    allowed_country_codes: ["+91", "+1"] # outbound customer calls only to these prefixes
+    email_follow_ups_to_owner: true # email you calls that need follow-up (needs email enabled)
 
   # -------------------------------------------------------------------
   # SOCIAL MEDIA — each platform is switched on separately. Creds in .env

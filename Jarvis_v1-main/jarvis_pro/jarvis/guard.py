@@ -71,7 +71,7 @@ def find_owner(room: rtc.Room | None) -> rtc.RemoteParticipant | None:
 
 # Capabilities that physically act on the PC running JARVIS. They only run when the command
 # comes from that PC itself — never on behalf of someone on another device.
-HOST_ONLY_PREFIXES = ("system.open_app", "system.info", "screen.", "social.whatsapp.")
+HOST_ONLY_PREFIXES = ("system.open_app", "system.info", "screen.", "media.", "social.whatsapp.")
 
 
 def is_host_only(capability: str) -> bool:

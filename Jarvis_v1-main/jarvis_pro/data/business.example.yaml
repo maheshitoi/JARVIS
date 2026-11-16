@@ -1,0 +1,59 @@
+# =====================================================================
+#  BUSINESS KNOWLEDGE — what the AI knows when it talks to customers
+# =====================================================================
+#  Copy this file to data/business.yaml and fill in your real details.
+#  The AI answers customers ONLY from this file. If something isn't here,
+#  it says it will have someone get back to them instead of guessing.
+#  Changes apply to the next call (no restart needed).
+# =====================================================================
+
+company:
+  name: "Acme Services"
+  assistant_name: "Maya" # the name the AI uses on calls
+  about: "We install and service home water purifiers and air conditioners in Chennai."
+  phone: "+914400000000"
+  website: "acme.example.com"
+  hours: "Monday to Saturday, 9 AM to 7 PM IST. Closed on Sundays and public holidays."
+  languages: ["English", "Tamil", "Hindi"] # AI replies in the customer's language
+
+services:
+  - name: "Water purifier installation"
+    price: "Rs 499"
+    details: "Takes about 1 hour. Free if the purifier was bought from us."
+  - name: "AC general service"
+    price: "Rs 599 per unit"
+    details: "Cleaning of filters and coils, gas pressure check."
+  - name: "AC gas refill"
+    price: "From Rs 2,500, depends on the model"
+    details: "Technician confirms the final price on site before starting."
+
+faqs:
+  - q: "Do you give a warranty?"
+    a: "Yes, 90 days on all service work and 1 year on parts we supply."
+  - q: "How do I pay?"
+    a: "Cash, UPI or card to the technician after the work is done."
+  - q: "Which areas do you cover?"
+    a: "All of Chennai and up to 20 km outside the city limits."
+
+policies:
+  cancellation: "Free cancellation up to 2 hours before the visit."
+  refunds: "Refunds are handled by our support team, not on this call. Offer a callback."
+
+# What the AI must NOT do on a call
+rules:
+  - "Never promise discounts, refunds or free visits that aren't listed above."
+  - "Never ask for card numbers, OTPs, passwords or bank details."
+  - "Never share other customers' information."
+  - "If the customer is angry, wants a refund, or asks for a person, offer to transfer or arrange a callback."
+
+escalation:
+  transfer_number: "" # staff phone for live transfer, e.g. "+919876543210" (empty = callbacks only)
+  transfer_hours: "Monday to Saturday, 10 AM to 6 PM IST"
+
+calls:
+  # Twilio TRIAL accounts play a "trial account" message and ask the callee to press a key
+  # before the call connects. If the AI starts talking over it, raise this to ~3-6 seconds.
+  outbound_greeting_delay_s: 0
+  # Campaign calls (call_customer.py --all) only run in this window, local time.
+  # India (TRAI) allows promotional/service calls 9 AM - 9 PM.
+  campaign_hours: "09:00-21:00"

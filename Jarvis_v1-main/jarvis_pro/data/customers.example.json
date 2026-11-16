@@ -1,0 +1,19 @@
+[
+  {
+    "id": "C001",
+    "name": "Ravi Kumar",
+    "phone": "+919876543210",
+    "language": "Tamil",
+    "notes": "Has 2 ACs. Prefers morning visits.",
+    "upcoming": "AC general service booked for Saturday 10 AM.",
+    "history": ["2026-08-12: Water purifier installed", "2026-10-02: AC service done"]
+  },
+  {
+    "id": "C002",
+    "name": "Priya Sharma",
+    "phone": "+919812345678",
+    "language": "Hindi",
+    "upcoming": "Water purifier filter change due next week.",
+    "do_not_call": true
+  }
+]

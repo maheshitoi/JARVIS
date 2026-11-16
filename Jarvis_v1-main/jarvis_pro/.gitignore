@@ -5,6 +5,8 @@ logs/
 data/*.json
 data/*.jsonl
 !data/contacts.example.json
+!data/customers.example.json
+data/business.yaml
 __pycache__/
 
 # JARVIS Device app

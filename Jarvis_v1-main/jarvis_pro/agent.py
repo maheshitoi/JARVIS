@@ -9,13 +9,18 @@ One worker handles these kinds of sessions:
   2. Inbound phone call   -> CallerAgent (take message / transfer / hang up)
                              or OwnerAgent if the number is a trusted owner number
   3. Outbound phone call  -> CallerAgent with a purpose (dispatched by make_phone_call)
+  4. Customer calls       -> CustomerAgent when capabilities.customer is enabled:
+                             inbound calls from customers, and outbound "inform" calls
+                             (dispatched by call_customer / dashboard / call_customer.py)
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,10 +30,10 @@ from livekit import api, rtc  # noqa: E402
 from livekit.agents import AgentServer, AgentSession, JobContext, cli, room_io  # noqa: E402
 from livekit.plugins import google, noise_cancellation  # noqa: E402
 
-from jarvis import audit, config  # noqa: E402
+from jarvis import audit, business, config  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
 from jarvis import device_link  # noqa: E402
-from jarvis.agents import CallerAgent, GuestAgent, OwnerAgent  # noqa: E402
+from jarvis.agents import CallerAgent, CustomerAgent, GuestAgent, OwnerAgent  # noqa: E402
 from jarvis.guard import (  # noqa: E402
     DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData,
 )
@@ -70,6 +75,9 @@ async def entrypoint(ctx: JobContext) -> None:
     if meta.get("mode") == "outbound":
         await _outbound_call(ctx, meta)
         return
+    if meta.get("mode") == "customer_out":
+        await _customer_outbound(ctx, meta)
+        return
 
     if ctx.is_fake_job():  # console mode: you are the owner, no participant to wait for
         await _start_owner(ctx, participant=None, video=False)
@@ -86,6 +94,8 @@ async def entrypoint(ctx: JobContext) -> None:
                       "status": "owner" if trusted else "caller"})
         if trusted:
             await _start_owner(ctx, participant, video=False, telephony=True)
+        elif policy.section("customer").get("enabled") is True:
+            await _start_customer(ctx, participant, number=number)
         else:
             await _start_caller(ctx, participant, number=number)
         return
@@ -201,6 +211,97 @@ async def _outbound_call(ctx: JobContext, meta: dict) -> None:
 
     audit.record({"capability": "phone.call_out", "summary": f"Call to {number} answered", "status": "connected"})
     session.generate_reply(instructions="The person just answered. Introduce yourself and state the purpose.")
+
+
+
+# ------------------------------------------------------------ customer calls ----
+def _telephony_options(identity: str) -> room_io.RoomOptions:
+    return room_io.RoomOptions(
+        participant_identity=identity,
+        audio_input=room_io.AudioInputOptions(noise_cancellation=noise_cancellation.BVCTelephony()),
+        delete_room_on_close=True,
+    )
+
+
+def _log_call_on_exit(ctx: JobContext, session: AgentSession, *, direction: str, number: str | None,
+                      customer: dict | None, purpose: str, failed: dict, campaign: str | None = None) -> None:
+    """When the call ends: save transcript + AI summary to data/customer_calls.jsonl."""
+    started = datetime.now()
+
+    async def save() -> None:
+        lines = []
+        for item in session.history.items:
+            if getattr(item, "type", None) != "message" or item.role not in ("user", "assistant"):
+                continue
+            text = (item.text_content or "").strip()
+            if text:
+                lines.append(f"{'AI' if item.role == 'assistant' else 'Customer'}: {text}")
+        try:
+            await business.finish_call(direction=direction, number=number, customer=customer, purpose=purpose,
+                                       transcript=lines, started=started, error=failed.get("error"),
+                                       recorded=session.userdata.extra.get("call"), campaign=campaign)
+        except Exception:  # noqa: BLE001
+            logger.exception("could not save customer call log")
+
+    ctx.add_shutdown_callback(save)
+
+
+async def _start_customer(ctx: JobContext, participant: rtc.RemoteParticipant, *, number: str | None) -> None:
+    policy = get_policy()
+    customer = business.find_customer(phone=number)
+    session = AgentSession(
+        llm=realtime_model(),
+        userdata=SessionData(mode="caller", caller_number=number, caller_identity=participant.identity),
+    )
+    _log_call_on_exit(ctx, session, direction="inbound", number=number, customer=customer,
+                      purpose="customer phoned in", failed={})
+    await session.start(agent=CustomerAgent(policy, number=number, customer=customer),
+                        room=ctx.room, room_options=_telephony_options(participant.identity))
+
+
+async def _customer_outbound(ctx: JobContext, meta: dict) -> None:
+    policy = get_policy()
+    number, message = meta["phone_number"], meta.get("message", "")
+    if policy.level("customer.call_out") == DENY:  # policy may have changed since dispatch
+        logger.warning("customer call to %s blocked by access.yaml", number)
+        ctx.shutdown()
+        return
+
+    customer = business.find_customer(phone=number)
+    await ctx.connect()
+    session = AgentSession(
+        llm=realtime_model(),
+        userdata=SessionData(mode="caller", caller_number=number, caller_identity=number, purpose=message),
+    )
+    failed: dict = {}
+    _log_call_on_exit(ctx, session, direction="outbound", number=number, customer=customer,
+                      purpose=message, failed=failed, campaign=meta.get("campaign"))
+    await session.start(agent=CustomerAgent(policy, number=number, customer=customer, message=message),
+                        room=ctx.room, room_options=_telephony_options(number))
+
+    try:
+        await ctx.api.sip.create_sip_participant(
+            api.CreateSIPParticipantRequest(
+                room_name=ctx.room.name,
+                sip_trunk_id=config.env("SIP_OUTBOUND_TRUNK_ID") or "",
+                sip_call_to=number,
+                participant_identity=number,
+                wait_until_answered=True,
+            )
+        )
+    except api.TwirpError as e:
+        failed["error"] = f"{e.message} (SIP {e.metadata.get('sip_status_code')})"
+        audit.record({"capability": "customer.call_out", "summary": f"Call to {number} failed",
+                      "status": "failed", "error": failed["error"]})
+        ctx.shutdown()
+        return
+
+    audit.record({"capability": "customer.call_out", "summary": f"Customer {number} answered",
+                  "status": "connected"})
+    delay = float((business.load_business().get("calls") or {}).get("outbound_greeting_delay_s") or 0)
+    if delay > 0:  # e.g. let a Twilio trial announcement finish
+        await asyncio.sleep(min(delay, 15))
+    session.generate_reply(instructions="The customer just answered. Greet them and give the message.")
 
 
 if __name__ == "__main__":

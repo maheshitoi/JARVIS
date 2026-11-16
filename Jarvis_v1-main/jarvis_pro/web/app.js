@@ -37,15 +37,38 @@
     return safeStorage(() => sessionStorage.getItem("jarvis-key"), "") || "";
   }
 
+  
+  // One shared prompt: requests that fail at the same time wait for the same answer,
+  // instead of each popping its own prompt (the second one wrongly said "Wrong password").
+  let keyPrompt = null;
+
+  function askKey(rejectedKey) {
+    if (!keyPrompt) {
+      keyPrompt = new Promise((resolve) => setTimeout(() => {
+        // Only "wrong" if the server rejected the key we actually sent.
+        const raw = window.prompt(rejectedKey ? "Wrong password. Dashboard password:" : "Dashboard password:");
+        const key = raw == null ? null : raw.trim();
+        if (key) {
+          safeStorage(() => sessionStorage.setItem("jarvis-key", key));
+          // cookie lets report links (opened in a new tab) authenticate too
+          document.cookie = `jarvis_key=${encodeURIComponent(key)}; path=/; SameSite=Strict` + (location.protocol === "https:" ? "; Secure" : "");
+        }
+        keyPrompt = null;
+        resolve(key);
+      }, 0));
+    }
+    return keyPrompt;
+  }
+
   async function api(path, opts = {}) {
-    const res = await fetch(path, { ...opts, headers: { "x-jarvis-key": apiKey(), ...(opts.headers || {}) } });
+    const sent = apiKey();
+    const res = await fetch(path, { ...opts, headers: { "x-jarvis-key": sent, ...(opts.headers || {}) } });
     if (res.status === 429) throw new Error((await res.json().catch(() => ({}))).detail || "Locked out");
     if (res.status === 401) {
-      const key = window.prompt(apiKey() ? "Wrong password. Dashboard password:" : "Dashboard password:");
-      if (key == null) throw new Error("Password required");
-      safeStorage(() => sessionStorage.setItem("jarvis-key", key));
-      // cookie lets report links (opened in a new tab) authenticate too
-      document.cookie = `jarvis_key=${encodeURIComponent(key)}; path=/; SameSite=Strict` + (location.protocol === "https:" ? "; Secure" : "");
+      // Another request may already have stored a newer key while this one was in flight.
+      const current = apiKey();
+      const key = current && current !== sent ? current : await askKey(sent);
+      if (!key) throw new Error("Password required");
       return api(path, opts);
     }
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);

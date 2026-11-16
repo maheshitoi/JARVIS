@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from livekit import api  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from jarvis import audit, config, devices, websites  # noqa: E402
+from jarvis import audit, business, config, devices, websites  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
 from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR  # noqa: E402
 
@@ -100,6 +100,9 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "microphone=(self), camera=(self), display-capture=(self)"
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        # Always revalidate the dashboard files so an update is picked up on a normal reload.
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
@@ -277,6 +280,27 @@ def access() -> dict:
 @app.get("/api/audit", dependencies=[Depends(check_key)])
 def audit_log(limit: int = 100) -> list[dict]:
     return list(reversed(audit.tail(max(1, min(limit, 500)))))
+
+
+class CustomerCall(BaseModel):
+    who: str  # customer name / id from data/customers.json, or +91... number
+    message: str  # what the AI must tell them
+
+
+@app.post("/api/customers/call", dependencies=[Depends(check_key)])
+async def customers_call(body: CustomerCall) -> dict:
+    """Start an outbound "inform" call. Clicking this on the dashboard counts as your approval."""
+    try:
+        return await business.dispatch_customer_call(body.who, body.message)
+    except business.CallError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/customers/calls", dependencies=[Depends(check_key)])
+def customers_calls(limit: int = 20, transcript: bool = False) -> list[dict]:
+    if get_policy().level("customer.read_calls") == DENY:
+        raise HTTPException(403, "customer.read_calls is denied in access.yaml")
+    return business.recent_calls(limit, with_transcript=transcript)
 
 
 @app.get("/api/websites", dependencies=[Depends(check_key)])

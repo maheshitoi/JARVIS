@@ -201,6 +201,55 @@ lk sip outbound create outbound-trunk.json   # put the ST_xxx id in .env as SIP_
 ```
 Then say: *"Jarvis, call Ravi and confirm tomorrow's 5pm meeting."* JARVIS dispatches a separate call session and records the outcome with `take_message`. Ask *"any phone messages?"* to hear it. Numbers are limited to `phone.allowed_country_codes`.
 
+### 5.4b Customer calls (AI talks to your customers)
+With `capabilities.customer` enabled, the AI acts as your business's phone assistant:
+
+- **Inbound**: every unknown caller gets the customer assistant. It looks the caller up in `data/customers.json` by number, answers from `data/business.yaml`, arranges callbacks, transfers to staff and logs the outcome.
+- **Outbound "inform" calls**: the AI phones a customer, gives them a message (reminder, order update, appointment change), answers follow-up questions and records the reply.
+- **After every call**: the transcript, outcome, an AI-written summary and any follow-up go to `data/customer_calls.jsonl`, plus an email to you when follow-up is needed (if email is enabled).
+
+**1. Fill in your business.** Copy `data/business.example.yaml` to `data/business.yaml` and `data/customers.example.json` to `data/customers.json`, then edit both. The AI won't state facts that aren't in these files.
+
+**2. Twilio (free trial is enough for testing).**
+1. Sign up at twilio.com. A trial gives you credit and one free US number.
+2. Under *Phone Numbers → Verified Caller IDs*, verify every phone you'll test with. **Trial accounts can only call verified numbers.**
+3. Under *Voice → Settings → Geo permissions*, enable **India** (and any other country you call).
+4. Under *Elastic SIP Trunking → Trunks*, create a trunk:
+   - **Termination** (outbound): set a Termination SIP URI (e.g. `jarvis-xyz.pstn.twilio.com`) and add a **Credential List** with a username and password.
+   - **Origination** (inbound): add the URI `sip:<your-project>.sip.livekit.cloud`. Find it in LiveKit Cloud under *Settings → SIP URI*.
+   - **Numbers**: attach your Twilio number to the trunk.
+5. Create the LiveKit side (LiveKit CLI, `lk cloud auth` first):
+```json
+// outbound-trunk.json
+{ "trunk": { "name": "Twilio out", "address": "jarvis-xyz.pstn.twilio.com",
+             "numbers": ["+1YOURTWILIONUMBER"], "authUsername": "<credential user>", "authPassword": "<credential password>" } }
+```
+```powershell
+lk sip outbound create outbound-trunk.json      # put the ST_xxx id in .env: SIP_OUTBOUND_TRUNK_ID=ST_xxx
+lk sip inbound create inbound-trunk.json        # same file as 5.4, with your Twilio number
+lk sip dispatch create dispatch-rule.json       # same file as 5.4
+```
+
+**3. Test.**
+```powershell
+python agent.py dev                                            # terminal 1: handles the calls
+python call_customer.py "Ravi" "Your AC service is confirmed for Saturday 10 AM."   # terminal 2
+python call_customer.py --log                                  # after the call: summary + transcript
+```
+**Call all customers (campaign).** `{name}`, `{first_name}`, `{upcoming}` or any field in `customers.json` is filled in for each customer. Without `--yes` the command only previews who would be called:
+```powershell
+python call_customer.py --all "Hi {first_name}, reminder: {upcoming}"          # preview
+python call_customer.py --all "Hi {first_name}, reminder: {upcoming}" --yes    # call them
+python call_customer.py --only C001,C002 "Our office is closed on Monday." --yes
+```
+Calls go **one at a time**, so the next customer is dialled only after the last call ends. They run only within `calls.campaign_hours`, and customers with `"do_not_call": true` are skipped. Each call is logged with the campaign id.
+
+For inbound, phone your Twilio number from a verified phone. You can also say *"Jarvis, call Ravi and tell him his order is ready"* on the dashboard, or ask *"any customer calls?"*. API: `POST /api/customers/call {"who": "...", "message": "..."}` and `GET /api/customers/calls`.
+
+**Trial limitations:**
+- Twilio plays a "trial account" announcement on outbound calls, and the person must press a key before the call connects. If the AI talks over it, set `calls.outbound_greeting_delay_s` in `business.yaml`.
+- The free number is a US number, so calling it from India is an international call. For real use in India, use an Indian provider (Exotel, Plivo) or a paid Twilio account with an Indian number. Outbound calls to Indian customers must follow TRAI DND rules and customer consent.
+
 ### 5.5 Social media
 | Platform | What you need (.env) | Notes |
 |---|---|---|

@@ -9,9 +9,11 @@ from ..devices import GUEST_GRANTABLE
 from ..device_link import DEVICE_CAPS
 from ..guard import is_host_only
 from . import (
+    customer_tools,
     database_tools,
     device_tools,
     email_tools,
+    media_tools,
     memory_tools,
     phone_tools,
     report_tools,
@@ -25,8 +27,10 @@ _OWNER = (
     memory_tools.TOOLS
     + system_tools.TOOLS
     + screen_tools.TOOLS
+    + media_tools.TOOLS
     + email_tools.TOOLS
     + phone_tools.OWNER_TOOLS
+    + customer_tools.OWNER_TOOLS
     + social_tools.TOOLS
     + whatsapp_tools.TOOLS
     + device_tools.TOOLS
@@ -61,6 +65,11 @@ def guest_tools(policy: AccessPolicy) -> list:
 
 def caller_tools(policy: AccessPolicy) -> list:
     return _unique(t for cap, t in phone_tools.CALLER_TOOLS if policy.allowed(cap))
+
+
+def customer_tools_for_call(policy: AccessPolicy) -> list:
+    """Tools for a customer on the phone: log the outcome, callback, transfer, hang up. Nothing else."""
+    return _unique(t for cap, t in customer_tools.CUSTOMER_TOOLS if policy.allowed(cap))
 
 
 def _unique(tools) -> list:
