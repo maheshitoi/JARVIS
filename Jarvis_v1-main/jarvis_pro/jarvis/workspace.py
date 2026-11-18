@@ -38,6 +38,26 @@ def _args(raw: str | None) -> dict[str, Any]:
     return {k: (v[:MAX_ARG] + "…" if isinstance(v, str) and len(v) > MAX_ARG else v) for k, v in data.items()}
 
 
+async def show(room: rtc.Room | None, call_id: str, name: str, *, state: str, **fields: Any) -> None:
+    """Drive a screen that isn't a normal tool call (e.g. a background task).
+
+    state: "start" (args=...), "progress" (message=...), "result" (output=..., error=bool), "cancelled".
+    """
+    if room is None or not room.isconnected():
+        return
+    event = {"type": "tool", "state": state, "call_id": call_id, "name": name, **fields}
+    try:
+        if state == "result":
+            out = str(event.get("output", ""))
+            event["output"] = out if len(out) <= MAX_OUTPUT else out[:MAX_OUTPUT] + "\n… (cut: too long to show)"
+            await room.local_participant.send_text(json.dumps(event, default=str), topic=TOOL_TOPIC)
+        else:
+            await room.local_participant.publish_data(json.dumps(event, default=str), topic=EVENTS_TOPIC,
+                                                      reliable=True)
+    except Exception:  # noqa: BLE001 — cosmetic
+        logger.debug("could not update workspace screen", exc_info=True)
+
+
 def attach(session: AgentSession, room: rtc.Room) -> None:
     """Mirror the session's tool calls to the dashboard in `room`."""
     tasks: set[asyncio.Task] = set()

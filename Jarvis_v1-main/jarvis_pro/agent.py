@@ -38,7 +38,7 @@ from jarvis.guard import (  # noqa: E402
     DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData,
 )
 from jarvis.mcp_client import build_toolsets  # noqa: E402
-from jarvis import workspace  # noqa: E402
+from jarvis import memory, proactive, workspace  # noqa: E402
 
 logger = logging.getLogger("jarvis")
 
@@ -128,6 +128,9 @@ async def _start_device(ctx: JobContext, participant: rtc.RemoteParticipant) -> 
     )
     agent = (OwnerAgent(policy, toolsets=build_toolsets(policy), device_name=name) if role == "owner"
              else GuestAgent(policy, device_name=name))
+    device_id = participant.attributes.get(DEVICE_ID_ATTR)
+    memory.ConversationRecorder(session, owner=policy.owner_name, mode=role,
+                                scope="owner" if role == "owner" else str(device_id))
     await session.start(
         agent=agent,
         room=ctx.room,
@@ -152,7 +155,10 @@ async def _start_owner(ctx: JobContext, participant: rtc.RemoteParticipant | Non
     remote = bool(participant and participant.attributes.get(DEVICE_ATTR) == "remote")
     agent = OwnerAgent(policy, toolsets=build_toolsets(policy), remote=remote)
     workspace.attach(session, ctx.room)  # every tool call shows up as a mini screen on the dashboard
+    memory.ConversationRecorder(session, owner=policy.owner_name)  # transcripts + automatic memories
     await session.start(agent=agent, room=ctx.room, room_options=options)
+    if not telephony:
+        proactive.start(session, ctx.room)  # morning brief + alerts while Boss is connected
 
 
 async def _start_caller(ctx: JobContext, participant: rtc.RemoteParticipant, *, number: str | None) -> None:

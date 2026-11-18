@@ -9,6 +9,7 @@ from ..devices import GUEST_GRANTABLE
 from ..device_link import DEVICE_CAPS
 from ..guard import is_host_only
 from . import (
+    claude_tools,
     customer_tools,
     database_tools,
     device_tools,
@@ -36,6 +37,7 @@ _OWNER = (
     + device_tools.TOOLS
     + database_tools.TOOLS
     + report_tools.OWNER_TOOLS
+    + claude_tools.TOOLS
 )
 
 

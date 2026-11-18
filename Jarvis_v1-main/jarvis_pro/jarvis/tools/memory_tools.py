@@ -16,6 +16,7 @@ from typing import Any
 from livekit.agents import RunContext, ToolError, function_tool
 
 from .. import config
+from .. import memory as long_memory
 from ..guard import action
 
 MEMORY_FILE = config.DATA_DIR / "memory.json"
@@ -50,6 +51,17 @@ def _memory_file(context: RunContext):
     return MEMORY_FILE
 
 
+def _scope(context: RunContext) -> str:
+    """Boss's memory is "owner"; each guest device keeps its own, separate memory."""
+    userdata = getattr(context, "userdata", None)
+    if getattr(userdata, "mode", "owner") == "guest":
+        device_id = getattr(userdata, "device_id", None)
+        if not device_id:
+            raise ToolError("Memory isn't available here.")
+        return str(device_id)
+    return "owner"
+
+
 def find_contact(name_or_value: str) -> dict[str, Any] | None:
     """Case-insensitive lookup by name or alias. Used by email/phone tools too."""
     key = name_or_value.strip().lower()
@@ -68,32 +80,41 @@ async def remember(context: RunContext, fact: str) -> str:
         fact: One short, self-contained sentence, e.g. "The user's sister is called Anya".
     """
     async with action(context, "memory.write", f"Remember: {fact}") as act:
-        path = _memory_file(context)
-        with _lock:
-            facts = _load(path, [])
-            facts.append({"id": uuid.uuid4().hex[:8], "fact": fact,
-                          "saved": datetime.now().isoformat(timespec="minutes")})
-            _save(path, facts)
-        act["result"] = "saved"
+        res = await long_memory.add(fact, scope=_scope(context), source="voice")
+        act["result"] = res.get("status", "saved")
+    if res.get("status") == "updated":
+        return f"Updated what I knew (was: {res.get('previous')})."
     return "Saved to memory."
 
 
 @function_tool
 async def recall(context: RunContext, query: str = "") -> str:
-    """Search long-term memory. Use before saying you don't know something personal about the user.
+    """Search long-term memory by meaning. Use before saying you don't know something personal about
+    the user (preferences, people, plans, past decisions). JARVIS also learns facts automatically
+    from conversations, so check here first.
 
     Args:
-        query: Keywords to search for. Empty returns the most recent facts.
+        query: What you want to know, e.g. "coffee preference" or "sister's name". Empty = recent facts.
     """
     async with action(context, "memory.read", f"Recall: {query or 'recent'}"):
-        facts = _load(_memory_file(context), [])
-        if query:
-            words = [w for w in query.lower().split() if len(w) > 2]
-            facts = [f for f in facts if any(w in f["fact"].lower() for w in words)] or facts
-        facts = facts[-20:]
+        facts = await long_memory.search(query, scope=_scope(context), limit=12)
     if not facts:
-        return "Memory is empty."
-    return "\n".join(f"- {f['fact']} (saved {f['saved']})" for f in facts)
+        return "Nothing in memory about that."
+    return "\n".join(f"- {f['fact']}" + (f" ({f['updated']})" if f.get("updated") else "") for f in facts)
+
+
+@function_tool
+async def forget(context: RunContext, what: str) -> str:
+    """Delete facts from long-term memory when the user asks you to forget something or says a
+    remembered fact is wrong.
+
+    Args:
+        what: Words from the fact to delete, e.g. "old phone number".
+    """
+    async with action(context, "memory.write", f"Forget: {what}") as act:
+        n = await long_memory.forget(what, scope=_scope(context))
+        act["result"] = f"{n} deleted"
+    return f"Forgot {n} fact{'s' if n != 1 else ''}." if n else "I had nothing matching that."
 
 
 @function_tool
@@ -115,5 +136,6 @@ async def lookup_contact(context: RunContext, name: str) -> str:
 TOOLS = [
     ("memory.write", remember),
     ("memory.read", recall),
+    ("memory.write", forget),
     ("memory.read", lookup_contact),
 ]

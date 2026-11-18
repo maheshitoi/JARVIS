@@ -169,6 +169,37 @@ capabilities:
       activity: allow # exact list + totals of actions on a given day
 
   # -------------------------------------------------------------------
+  # CLAUDE — deep-thinking brain (needs ANTHROPIC_API_KEY in .env)
+  # Claude's own tool calls still go through the levels above (database, memory, mcp, websites).
+  # -------------------------------------------------------------------
+  claude:
+    description: "Hand hard jobs to Claude: reports, analysis, plans, writing, background tasks"
+    risk: medium
+    enabled: true
+    actions:
+      ask: allow # "analyse last month's payments" — Claude works on it and JARVIS reads the answer
+      task: allow # long jobs in the background, announced when done ("let me know when it's ready")
+      web: allow # let Claude search the web (Anthropic web search) during a job
+
+  # -------------------------------------------------------------------
+  # PROACTIVE — JARVIS speaks up without being asked (while you're connected)
+  # -------------------------------------------------------------------
+  proactive:
+    description: "Daily briefing and live alerts (site down, SSL, phone messages, failures)"
+    risk: low
+    enabled: true
+    actions:
+      brief: allow # once a day, the first time you connect after brief_time
+      alerts: allow # site down/up, SSL expiring, new phone message, burst of failed actions
+    brief_time: "09:00" # local time
+    brief_with_claude: false # true = Claude writes a richer briefing with business numbers (slower, uses API)
+    check_every_minutes: 5
+    ssl_warn_days: 14
+    failure_window_minutes: 30
+    failure_alert_count: 3 # this many failed actions within the window = alert
+    speak_info_alerts: true # false = info alerts (phone messages, site back up) only pop up, not spoken
+
+  # -------------------------------------------------------------------
   # MCP — Model Context Protocol servers JARVIS connects to for extra tools.
   # Tools from MCP servers are NOT individually approved by JARVIS's gate:
   # only add servers you trust, and use allowed_tools to limit them.
