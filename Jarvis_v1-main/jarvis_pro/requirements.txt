@@ -5,6 +5,7 @@ livekit-api>=1.0
 mcp>=2.0            # MCP client (JARVIS) + website monitor MCP server
 certifi
 google-genai>=1.0
+anthropic>=2.0       # Claude deep-thinking brain (optional: needs ANTHROPIC_API_KEY)
 python-dotenv
 pyyaml
 httpx

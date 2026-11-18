@@ -360,6 +360,47 @@ real protection — don't point JARVIS at a superuser.
 **Users / guest devices** get `database.*` and `websites.report` only when you grant them on the
 dashboard (Devices → Permissions). Until then, asking sends you a permission request.
 
+### Claude brain, background tasks, memory, proactive alerts
+
+**Claude (deep-thinking brain).** The voice stays Gemini Live. For jobs that need real reasoning,
+such as reports across tables, analysis, plans or writing, JARVIS calls `ask_claude`. Claude then
+works through the job with JARVIS's read-only tools: database, website status, memory, MCP servers
+and web search. Every tool Claude calls goes through the same `access.yaml` levels, approvals and
+audit log as the voice tools.
+1. Put `ANTHROPIC_API_KEY=sk-ant-...` in `.env`, or use Control Center → Settings on this PC.
+2. Restart `python agent.py dev`, then say: *"Analyse last week's payments and explain any spikes."*
+
+Optional settings: `CLAUDE_MODEL` (default `claude-opus-5-5`) and `CLAUDE_EFFORT` (default `high`).
+Requests use server-side refusal fallbacks (`fallbacks: "default"`).
+
+**Background tasks.** *"Prepare this month's report in the background."* Claude works on it while
+you keep talking. The task gets its own workspace screen with live progress, and JARVIS tells you
+when it's done. Past tasks are kept in `jarvis.tasks` and listed under Control Center → Background
+tasks.
+
+**Long-term memory.** Facts are stored in `jarvis.memory_items` with Gemini embeddings, so
+`recall` finds them by meaning ("what coffee do I like?").
+- After each conversation, and every 12 turns in long ones, JARVIS automatically pulls out durable
+  facts. A near-duplicate updates the existing fact instead of adding a copy.
+- Every spoken line is saved in `jarvis.conversations`.
+- Say *"forget that"* or use Control Center → History & memory to delete a fact.
+- Guest devices keep their own separate memory.
+
+**Proactive.** While you're connected:
+- A daily briefing, the first time you connect after `brief_time`.
+- Alerts for a site going down or coming back, SSL expiring, new phone messages, and a burst of
+  failed actions. Alerts pop up on the dashboard. JARVIS says them aloud only when it's idle, so it
+  never talks over you.
+
+Settings are in `access.yaml → capabilities.proactive`, or Control Center → Settings.
+
+**Control Center** (top-right button):
+- **Insights:** actions per day, success rate, most-used capabilities, failures and conversations.
+- **History & memory:** search past conversations; view and delete memories.
+- **Background tasks.**
+- **Settings:** Claude key and model, voice, and proactive options. Settings can only be changed on
+  the PC running JARVIS, never through a tunnel.
+
 ## 6. Adding your own tool
 
 1. Write it in `jarvis/tools/<area>_tools.py`:

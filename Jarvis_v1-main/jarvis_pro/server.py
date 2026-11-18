@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from livekit import api  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from jarvis import audit, business, config, devices, websites  # noqa: E402
+from jarvis import audit, business, config, devices, insights, memory, websites  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
 from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR  # noqa: E402
 
@@ -329,6 +329,88 @@ def report_page(day: str) -> FileResponse:
     if not path.exists():
         raise HTTPException(404, "No report for that day")
     return FileResponse(path)
+
+
+# ---- Control Center: insights, history & memory, settings ---------------------------------
+@app.get("/api/insights", dependencies=[Depends(check_key)])
+def insights_usage(days: int = 14) -> dict:
+    try:
+        return insights.usage(days)
+    except Exception as e:  # noqa: BLE001 — show the reason on the dashboard
+        return {"available": False, "reason": f"Could not read the database: {str(e).splitlines()[0]}"}
+
+
+@app.get("/api/history", dependencies=[Depends(check_key)])
+def history_list(q: str = "", limit: int = 40) -> dict:
+    return {"items": memory.recent_conversations(limit=max(1, min(limit, 200)), search_text=q[:200]),
+            "search": bool(q.strip())}
+
+
+@app.get("/api/history/{session_id}", dependencies=[Depends(check_key)])
+def history_session(session_id: str) -> list[dict]:
+    if not re.fullmatch(r"[0-9a-f]{8,32}", session_id):
+        raise HTTPException(404)
+    return memory.session_lines(session_id)
+
+
+@app.get("/api/memories", dependencies=[Depends(check_key)])
+async def memories_list(q: str = "") -> list[dict]:
+    if q.strip():
+        return await memory.search(q[:200], limit=30)
+    return insights.memories()
+
+
+@app.delete("/api/memories/{memory_id}", dependencies=[Depends(check_key)])
+def memories_delete(memory_id: str) -> dict:
+    if not re.fullmatch(r"[0-9a-f]{6,32}", memory_id):
+        raise HTTPException(404)
+    if not insights.delete_memory(memory_id):
+        raise HTTPException(404, "No such memory")
+    audit.record({"capability": "memory.write", "summary": f"Deleted memory {memory_id} from the dashboard",
+                  "status": "done", "mode": "owner"})
+    return {"ok": True}
+
+
+@app.get("/api/tasks", dependencies=[Depends(check_key)])
+def tasks_list() -> list[dict]:
+    return insights.task_history()
+
+
+def _local_only(request: Request) -> None:
+    """Keys and models can only be changed from the PC running JARVIS, never through a tunnel."""
+    if _via_tunnel(request) or client_ip(request) not in ("127.0.0.1", "::1"):
+        raise HTTPException(403, "Settings can only be changed on the PC running JARVIS.")
+
+
+@app.get("/api/settings", dependencies=[Depends(check_key)])
+def settings_get(request: Request) -> dict:
+    return {**insights.settings(), "editable": not _via_tunnel(request)
+            and client_ip(request) in ("127.0.0.1", "::1")}
+
+
+class SettingsUpdate(BaseModel):
+    env: dict[str, str] = {}
+    proactive: dict[str, str | bool | int] = {}
+
+
+@app.post("/api/settings", dependencies=[Depends(check_key)])
+def settings_post(body: SettingsUpdate, request: Request) -> dict:
+    _local_only(request)
+    try:
+        changed = insights.update_env(body.env) + [f"proactive.{k}" for k in insights.update_proactive(body.proactive)]
+    except insights.SettingsError as e:
+        raise HTTPException(400, str(e)) from e
+    if changed:
+        audit.record({"capability": "dashboard.settings", "summary": "Settings changed: " + ", ".join(changed),
+                      "status": "done", "mode": "owner"})
+    restart = any(not k.startswith("proactive.") for k in changed)
+    return {"changed": changed, "restart_agent": restart}
+
+
+@app.post("/api/settings/test-claude", dependencies=[Depends(check_key)])
+async def settings_test_claude(request: Request) -> dict:
+    _local_only(request)
+    return await insights.test_claude()
 
 
 @app.get("/")

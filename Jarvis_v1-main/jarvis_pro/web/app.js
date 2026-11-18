@@ -75,6 +75,8 @@
     return res.json();
   }
 
+  window.JarvisAPI = api; // the Control Center (center.js) uses the same auth
+
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -455,6 +457,7 @@
         if (ev.type === "action") window.JarvisWS?.action(ev);
         if (ev.type === "tool") window.JarvisWS?.tool(ev);
         if (ev.type === "player") window.JarvisWS?.player(ev);
+        if (ev.type === "alert") window.JarvisCenter?.alert(ev);
       } catch (e) { console.warn("bad event", e); }
     });
 
