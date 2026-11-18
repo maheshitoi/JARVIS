@@ -100,6 +100,7 @@
   // ------------------------------------------------------------- state --
   function setState(state, sub) {
     agentState = state;
+    window.JarvisWS?.agentState(state); // workspace closes a screen 4 s after JARVIS finishes explaining it
     const s = STATES[state] || STATES.standby;
     $("agent-state").textContent = s.label;
     $("agent-sub").textContent = sub ?? s.sub;
@@ -427,8 +428,16 @@
       for await (const chunk of reader) {
         text += chunk;
         upsertLine(id, who, text, false);
+        if (who === "agent") window.JarvisWS?.speech(id, text, false); // which screen is JARVIS on?
       }
       upsertLine(id, who, text, true);
+      if (who === "agent") window.JarvisWS?.speech(id, text, true);
+    });
+
+    // Tool results (can be large tables) arrive as a text stream: workspace screens show them.
+    r.registerTextStreamHandler("jarvis.tool", async (reader) => {
+      try { window.JarvisWS?.tool(JSON.parse(await reader.readAll())); }
+      catch (e) { console.warn("bad tool result", e); }
     });
 
     r.localParticipant.registerRpcMethod(APPROVE_RPC, async (data) => {
@@ -443,6 +452,9 @@
         const ev = JSON.parse(new TextDecoder().decode(payload));
         if (ev.type === "action") renderActivity(ev, true);
         if (ev.type === "open_url") openOnThisDevice(ev.url);
+        if (ev.type === "action") window.JarvisWS?.action(ev);
+        if (ev.type === "tool") window.JarvisWS?.tool(ev);
+        if (ev.type === "player") window.JarvisWS?.player(ev);
       } catch (e) { console.warn("bad event", e); }
     });
 
@@ -484,6 +496,7 @@
       setState("standby");
       setControls(false);
       finishApproval(false);
+      window.JarvisWS?.clear();
       agentAnalyser = micAnalyser = null;
       room = null;
     });

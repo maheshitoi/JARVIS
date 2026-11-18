@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/workspace.css">
 </head>
 <body>
   <header class="topbar">
@@ -39,6 +40,18 @@
 
     <!-- STAGE ----------------------------------------------------------->
     <section class="stage">
+      <!-- WORKSPACE: a mini screen for every action JARVIS runs (workspace.js) -->
+      <div id="ws" class="ws" hidden aria-live="polite">
+        <div class="ws-bar">
+          <span class="ws-name">Workspace</span>
+          <span id="ws-count" class="ws-count"></span>
+          <span class="spacer"></span>
+          <button id="ws-panels" class="ws-tool" type="button" title="Show the side panels">Panels</button>
+          <button id="ws-clear" class="ws-tool" type="button" title="Close every screen">Clear</button>
+        </div>
+        <div id="ws-grid" class="ws-grid"></div>
+      </div>
+
       <div class="orb-wrap">
         <canvas id="orb" aria-hidden="true"></canvas>
         <div class="orb-label">
@@ -150,6 +163,7 @@
 
   <div id="audio-sink" hidden></div>
   <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.4/dist/livekit-client.umd.js"></script>
+  <script src="/static/workspace.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

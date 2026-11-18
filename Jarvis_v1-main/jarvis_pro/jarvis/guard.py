@@ -84,6 +84,13 @@ def owner_is_remote() -> bool:
     return bool(owner and owner.attributes.get(DEVICE_ATTR) == "remote")
 
 
+def owner_on_dashboard() -> bool:
+    """True when Boss is connected through the web dashboard (on this PC or another browser),
+    so things like a music player can be shown inside it."""
+    owner = find_owner(_room())
+    return bool(owner and owner.attributes.get(DEVICE_ATTR) in ("host", "remote"))
+
+
 async def publish_event(event: dict[str, Any]) -> None:
     """Best-effort push to the dashboard; never breaks a tool."""
     room = _room()
@@ -200,6 +207,9 @@ async def action(
         "mode": mode,
         **({"device": getattr(userdata, "device_name", None)} if device_identity else {}),
     }
+    call = getattr(context, "function_call", None) if context else None
+    if call is not None:  # links this action to its mini screen on the dashboard (workspace.py)
+        event["call_id"] = call.call_id
 
     if level != DENY and device_identity and is_host_only(capability) and capability not in DEVICE_CAPS:
         # Device app session: host-only tools that can't run on the device (e.g. WhatsApp Desktop

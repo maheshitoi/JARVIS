@@ -38,6 +38,7 @@ from jarvis.guard import (  # noqa: E402
     DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData,
 )
 from jarvis.mcp_client import build_toolsets  # noqa: E402
+from jarvis import workspace  # noqa: E402
 
 logger = logging.getLogger("jarvis")
 
@@ -150,6 +151,7 @@ async def _start_owner(ctx: JobContext, participant: rtc.RemoteParticipant | Non
     )
     remote = bool(participant and participant.attributes.get(DEVICE_ATTR) == "remote")
     agent = OwnerAgent(policy, toolsets=build_toolsets(policy), remote=remote)
+    workspace.attach(session, ctx.room)  # every tool call shows up as a mini screen on the dashboard
     await session.start(agent=agent, room=ctx.room, room_options=options)
 
 

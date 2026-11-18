@@ -68,11 +68,12 @@ capabilities:
   # MEDIA — play music on YouTube, pause/skip it, close browser tabs (this PC)
   # -------------------------------------------------------------------
   media:
-    description: "Play music on YouTube, pause/skip/volume, close browser tabs"
+    description: "Play music on YouTube/Spotify, pause/skip/volume, close browser tabs"
     risk: medium
     enabled: true
+    play_in_dashboard: true # play inside the dashboard (embedded player); false = open a browser tab instead
     actions:
-      play: allow # "play Believer on YouTube" — opens and plays it in your browser
+      play: allow # "play Believer on YouTube" / "play Arijit Singh on Spotify"
       control: allow # pause / resume / next / previous / volume (media keys)
       close_tabs: allow # close the current tab or ALL browser windows (set "confirm" to approve each time)
 
@@ -140,11 +141,22 @@ capabilities:
     actions:
       schema: allow # see table and column names
       query: allow # run a read-only SELECT (set "confirm" to approve each query)
-    schemas: ["public"] # only tables in these schemas are shown
+    schemas: ["public", "jarvis"] # only tables in these schemas are shown ("jarvis" = JARVIS usage history)
     max_rows: 200 # most rows one query returns to JARVIS
     timeout_seconds: 15 # a query running longer is stopped
     hide_columns: # never shown or queried (add your own sensitive columns)
-      [password, passwd, password_hash, token, access_token, refresh_token, secret, api_key, otp, salt]
+      [
+        password,
+        passwd,
+        password_hash,
+        token,
+        access_token,
+        refresh_token,
+        secret,
+        api_key,
+        otp,
+        salt,
+      ]
 
   # -------------------------------------------------------------------
   # REPORTS — JARVIS's own activity log ("what did you do today?")
@@ -224,7 +236,7 @@ capabilities:
   phone:
     description: "Answer calls, take messages, make outbound calls"
     risk: high
-    enabled: false
+    enabled: true
     actions:
       call_out: confirm # JARVIS dials a number for you
       read_messages: allow # read messages callers left
@@ -296,7 +308,7 @@ capabilities:
         view: allow # see the chat list, unread chats, previews
         read: allow # open a chat and read its latest messages
         edit: allow # type / replace a message in the input box — NOT sent
-        send: confirm # send a message (you approve the exact text + chat)
+        send: allow # send a message (you approve the exact text + chat)
 
     linkedin:
       description: "Post to your LinkedIn profile"

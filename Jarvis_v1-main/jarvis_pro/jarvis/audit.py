@@ -30,8 +30,12 @@ def _clean(value: Any) -> Any:
 
 def record(event: dict[str, Any]) -> dict[str, Any]:
     entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **_clean(event)}
+    line = json.dumps(entry, ensure_ascii=False)
     with _lock, AUDIT_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        f.write(line + "\n")
+    from . import usage_db  # also copied to PostgreSQL (jarvis.action_log), best-effort
+
+    usage_db.record_action(line, entry)
     return entry
 
 
