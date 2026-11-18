@@ -12,6 +12,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # .../jarvis_pro
 # jarvis_pro/.env wins; the original project's .env is used as a fallback so
 # LIVEKIT_* and GOOGLE_API_KEY don't have to be copied.
 load_dotenv(BASE_DIR / ".env")
+# An empty line like `GOOGLE_API_KEY=` must not hide the real value in the fallback file
+# (python-dotenv never overrides a variable that is already set, even to "").
+for _k in [k for k, v in os.environ.items() if v == ""]:
+    del os.environ[_k]
 load_dotenv(BASE_DIR.parent / ".env")
 
 DATA_DIR = BASE_DIR / "data"
