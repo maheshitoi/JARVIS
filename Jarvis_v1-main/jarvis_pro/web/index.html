@@ -21,6 +21,9 @@
       <span class="dot"></span><span id="conn-text">Offline</span>
     </div>
     <div class="top-right">
+      <button id="btn-wake" class="btn wake-btn" type="button" aria-pressed="false" data-mode="off">
+        <span class="wake-dot" aria-hidden="true"></span><span id="wake-label">Wake word</span>
+      </button>
       <button id="btn-center" class="btn center-btn" type="button" title="Insights, history, memory and settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
         Control Center
@@ -177,6 +180,7 @@
         <button class="ctab active" data-view="insights" role="tab">Insights</button>
         <button class="ctab" data-view="history" role="tab">History &amp; memory</button>
         <button class="ctab" data-view="tasks" role="tab">Background tasks</button>
+        <button class="ctab" data-view="automations" role="tab">Automations</button>
         <button class="ctab" data-view="settings" role="tab">Settings</button>
       </nav>
       <button id="center-close" class="center-close" type="button" aria-label="Close">×</button>
@@ -184,6 +188,7 @@
     <section id="view-insights" class="center-view"></section>
     <section id="view-history" class="center-view" hidden></section>
     <section id="view-tasks" class="center-view" hidden></section>
+    <section id="view-automations" class="center-view" hidden></section>
     <section id="view-settings" class="center-view" hidden></section>
     <div id="viz-tip" class="viz-tip" role="tooltip" hidden></div>
   </dialog>
@@ -194,5 +199,6 @@
   <script src="/static/workspace.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/center.js"></script>
+  <script src="/static/wake.js"></script>
 </body>
 </html>

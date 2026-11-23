@@ -35,7 +35,7 @@ from jarvis.access import DENY, get_policy  # noqa: E402
 from jarvis import device_link  # noqa: E402
 from jarvis.agents import CallerAgent, CustomerAgent, GuestAgent, OwnerAgent  # noqa: E402
 from jarvis.guard import (  # noqa: E402
-    DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, SessionData,
+    DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, WAKE_ATTR, SessionData,
 )
 from jarvis.mcp_client import build_toolsets  # noqa: E402
 from jarvis import memory, proactive, workspace  # noqa: E402
@@ -153,7 +153,8 @@ async def _start_owner(ctx: JobContext, participant: rtc.RemoteParticipant | Non
         **({"participant_identity": participant.identity} if participant else {}),
     )
     remote = bool(participant and participant.attributes.get(DEVICE_ATTR) == "remote")
-    agent = OwnerAgent(policy, toolsets=build_toolsets(policy), remote=remote)
+    wake = (participant.attributes.get(WAKE_ATTR) or "") if participant else ""
+    agent = OwnerAgent(policy, toolsets=build_toolsets(policy), remote=remote, first_command=wake)
     workspace.attach(session, ctx.room)  # every tool call shows up as a mini screen on the dashboard
     memory.ConversationRecorder(session, owner=policy.owner_name)  # transcripts + automatic memories
     await session.start(agent=agent, room=ctx.room, room_options=options)

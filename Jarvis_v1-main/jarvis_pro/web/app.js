@@ -103,6 +103,7 @@
   function setState(state, sub) {
     agentState = state;
     window.JarvisWS?.agentState(state); // workspace closes a screen 4 s after JARVIS finishes explaining it
+    window.JarvisWake?.agentState(state); // wake word: auto-sleep timer
     const s = STATES[state] || STATES.standby;
     $("agent-state").textContent = s.label;
     $("agent-sub").textContent = sub ?? s.sub;
@@ -391,12 +392,14 @@
   requestAnimationFrame(draw);
 
   // ---------------------------------------------------------- livekit --
-  async function connect() {
+  async function connect(wake = "") {
     $("btn-connect").disabled = true;
     setConnection("connecting", "Connecting…");
     setState("connecting");
     try {
-      const { url, token } = await api("/api/token", { method: "POST" });
+      const { url, token } = await api("/api/token", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wake }),
+      });
       room = new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -434,6 +437,7 @@
       }
       upsertLine(id, who, text, true);
       if (who === "agent") window.JarvisWS?.speech(id, text, true);
+      if (who === "user") window.JarvisWake?.userSpeech(text); // "goodbye JARVIS" -> sleep
     });
 
     // Tool results (can be large tables) arrive as a text stream: workspace screens show them.
@@ -502,6 +506,7 @@
       window.JarvisWS?.clear();
       agentAnalyser = micAnalyser = null;
       room = null;
+      window.JarvisWake?.disconnected(); // back to listening for "Hey JARVIS"
     });
   }
 
@@ -553,15 +558,29 @@
     } catch (e) { console.warn("camera failed", e); }
   });
 
+  async function sendChat(text) {
+    if (!text || !room) return;
+    upsertLine("chat-" + Date.now(), "user", text, true);
+    await room.localParticipant.sendText(text, { topic: "lk.chat" });
+  }
+
   $("chat-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = $("chat-input");
     const text = input.value.trim();
     if (!text || !room) return;
     input.value = "";
-    upsertLine("chat-" + Date.now(), "user", text, true);
-    await room.localParticipant.sendText(text, { topic: "lk.chat" });
+    await sendChat(text);
   });
+
+  // Used by wake.js ("Hey JARVIS" hands-free start / "goodbye JARVIS" sleep).
+  window.JarvisApp = {
+    connect: (wake = "") => (room ? Promise.resolve() : connect(wake)),
+    disconnect: async () => { if (room) await room.disconnect(); },
+    connected: () => !!room,
+    state: () => agentState,
+    sendChat,
+  };
 
   document.querySelectorAll(".tab").forEach((tab) =>
     tab.addEventListener("click", () => {

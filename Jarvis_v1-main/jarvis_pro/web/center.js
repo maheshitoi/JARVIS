@@ -41,8 +41,8 @@
   function show(name) {
     view = name;
     document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
-    for (const v of ["insights", "history", "tasks", "settings"]) $("view-" + v).hidden = v !== name;
-    ({ insights: loadInsights, history: loadHistory, tasks: loadTasks, settings: loadSettings })[name]();
+    for (const v of ["insights", "history", "tasks", "automations", "settings"]) $("view-" + v).hidden = v !== name;
+    ({ insights: loadInsights, history: loadHistory, tasks: loadTasks, automations: loadAutomations, settings: loadSettings })[name]();
   }
 
   function fail(box, e) {
@@ -352,6 +352,109 @@
       c.append(s, el("pre", "c-task-r", t.result || t.error || "(no result yet)"));
       return c;
     }));
+  }
+
+  // -------------------------------------------------------- automations --
+  const EXAMPLES = [
+    ["Morning check", "weekdays 09:00", "only_if_issue", "Check that all my websites are up, list any failed JARVIS actions from the last 24 hours, and tell me only what needs attention."],
+    ["Weekly payments", "monday 09:30", "auto", "Compare last week's successful and failed payments with the week before, per day, and point out anything unusual."],
+    ["Evening wrap-up", "daily 19:00", "auto", "Summarise today: website status, phone messages, important unread emails and tomorrow's meetings."],
+    ["Site watch", "every 2 hours", "only_if_issue", "Check all my websites and SSL certificates; say 'All good' if nothing is wrong."],
+  ];
+  const NOTIFY_LABEL = {
+    auto: "Speak if I'm connected, else push to phone", push: "Push to phone", speak: "Speak when I'm connected",
+    both: "Push and speak", only_if_issue: "Only when something needs attention",
+  };
+  const short = (iso) => (iso ? new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
+
+  async function loadAutomations() {
+    const box = $("view-automations");
+    box.replaceChildren(el("div", "c-empty", "Loading…"));
+    let d;
+    try { d = await api("/api/automations"); } catch (e) { return fail(box, e); }
+
+    // connections
+    const chip = (ok, yes, no) => el("span", "status-chip " + (ok ? "good" : "serious"), (ok ? "✓ " : "! ") + (ok ? yes : no));
+    const conn = el("div", "c-row");
+    const testBtn = el("button", "btn small-btn", "Send test notification"); testBtn.type = "button"; testBtn.disabled = !d.push_ready;
+    const testOut = el("span", "c-help");
+    testBtn.addEventListener("click", async () => {
+      testOut.textContent = "Sending…";
+      try { const r = await api("/api/notify/test", { method: "POST" }); testOut.textContent = r.ok ? "✓ Sent — check your phone" : "✕ The ntfy server refused it"; }
+      catch (e) { testOut.textContent = "✕ " + e.message; }
+    });
+    conn.append(chip(d.push_ready, "Phone push ready", "Phone push off (NTFY_TOPIC)"),
+      chip(d.calendar_ready, "Calendar connected", "No calendar (CALENDAR_ICS_URLS)"),
+      chip(d.email_ready, "Email connected", "No email (EMAIL_ADDRESS)"), testBtn, testOut);
+
+    // new automation
+    const form = el("form", "c-set c-auto-new");
+    form.autocomplete = "off";
+    const input = (name, ph) => { const i = el("input", "c-input"); i.name = name; i.placeholder = ph; i.required = true; return i; };
+    const title = input("title", "Morning check");
+    const when = input("when", "weekdays 09:00  ·  monday 9am  ·  every 2 hours");
+    const job = el("textarea", "c-input"); job.name = "job"; job.required = true;
+    job.placeholder = "What should JARVIS do? Write it like you'd say it, with all details.";
+    const notifySel = el("select", "c-select");
+    for (const m of d.notify_modes) { const o = el("option", null, NOTIFY_LABEL[m] || m); o.value = m; notifySel.append(o); }
+    const field = (label, ctl, wide) => { const f = el("label", "c-field" + (wide ? " c-wide" : "")); f.append(el("span", "c-label", label), ctl); return f; };
+    const examples = el("div", "c-examples c-wide");
+    examples.append(el("span", "c-label", "Examples:"));
+    for (const [t, w, n, j] of EXAMPLES) {
+      const b = el("button", "btn", t); b.type = "button";
+      b.addEventListener("click", () => { title.value = t; when.value = w; notifySel.value = n; job.value = j; });
+      examples.append(b);
+    }
+    const create = el("button", "btn primary", "Create automation");
+    const out = el("span", "c-help");
+    const row = el("div", "c-row c-wide"); row.append(create, out);
+    form.append(el("legend", null, "New automation"), examples, field("Name", title), field("Schedule", when),
+      field("Job", job, true), field("Tell me", notifySel), row);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      out.textContent = "Creating…";
+      try {
+        const a = await api("/api/automations", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title.value, when: when.value, job: job.value, notify: notifySel.value }) });
+        out.textContent = `✓ ${a.schedule} — first run ${short(a.next_run)}`;
+        form.reset();
+        renderList();
+      } catch (err) { out.textContent = "✕ " + err.message; }
+    });
+
+    const list = el("div");
+    async function renderList() {
+      let items;
+      try { items = (await api("/api/automations")).items; } catch (e) { return fail(list, e); }
+      if (!items.length) {
+        return list.replaceChildren(el("div", "c-empty", "No automations yet. Create one above, or tell JARVIS: “every Monday at 9, check last week's payments”."));
+      }
+      list.replaceChildren(...items.map((a) => {
+        const card = el("div", "c-auto");
+        const head = el("div", "c-auto-head");
+        const state = a.enabled ? ["good", "✓ On"] : ["muted", "‖ Paused"];
+        head.append(el("span", "status-chip " + state[0], state[1]), el("span", "c-task-t", a.title),
+          el("span", "c-sub", a.schedule + (a.enabled && a.next_run ? ` · next ${short(a.next_run)}` : "")));
+        if (a.last_status === "failed") head.append(el("span", "status-chip critical", "✕ Last run failed"));
+        const act = async (path, opts) => { try { await api(path, opts); } catch (e) { window.alert(e.message); } renderList(); };
+        const btn = (text, cls, fn) => { const b = el("button", "btn small-btn" + (cls ? " " + cls : ""), text); b.type = "button"; b.addEventListener("click", fn); return b; };
+        head.append(
+          btn("Run now", "", async (e) => { e.target.disabled = true; e.target.textContent = "Queued…"; await act(`/api/automations/${a.id}/run`, { method: "POST" }); }),
+          btn(a.enabled ? "Pause" : "Resume", "", () => act(`/api/automations/${a.id}/enabled`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !a.enabled }) })),
+          btn("Delete", "danger", () => { if (window.confirm(`Delete “${a.title}”?`)) act(`/api/automations/${a.id}`, { method: "DELETE" }); }));
+        card.append(head, el("p", "c-auto-job", a.job + " — " + (NOTIFY_LABEL[a.notify] || a.notify)));
+        if (a.last_run) {
+          const det = el("details");
+          det.append(el("summary", null, `Last result · ${short(a.last_run)}${a.last_engine && a.last_engine !== "-" ? " · " + a.last_engine : ""}`),
+            el("pre", "c-task-r", a.last_result || "(empty)"));
+          card.append(det);
+        }
+        return card;
+      }));
+    }
+    box.replaceChildren(conn, form, list);
+    renderList();
   }
 
   // ----------------------------------------------------------- settings --

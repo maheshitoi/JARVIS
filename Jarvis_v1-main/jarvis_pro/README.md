@@ -398,8 +398,48 @@ Settings are in `access.yaml → capabilities.proactive`, or Control Center → 
 - **Insights:** actions per day, success rate, most-used capabilities, failures and conversations.
 - **History & memory:** search past conversations; view and delete memories.
 - **Background tasks.**
+- **Automations:** create, pause, run and delete scheduled jobs, and see each job's last result.
 - **Settings:** Claude key and model, voice, and proactive options. Settings can only be changed on
   the PC running JARVIS, never through a tunnel.
+
+### Wake word, phone notifications, calendar, scheduled automations
+
+**Wake word ("Hey JARVIS").** Click **Wake word** at the top of the dashboard and allow the mic.
+- Say *"Hey JARVIS"* to connect hands-free. Anything you say after it (*"Hey JARVIS, what's on my
+  calendar?"*) is answered straight away instead of a greeting.
+- Say *"Goodbye JARVIS"* or *"that's all"* to disconnect. JARVIS also goes back to sleep after
+  3 quiet minutes.
+- It uses the browser's speech recognition, so it needs Chrome or Edge. Unless on-device
+  recognition is available, the browser sends what it hears while listening to its speech
+  service (Google or Microsoft). The button's tooltip says which one is in use.
+
+**Phone notifications (ntfy).**
+1. Install the free **ntfy** app and subscribe to a long, random topic name.
+2. Put the same name in `.env` as `NTFY_TOPIC=…`, restart `server.py`, then use
+   Control Center → Automations → **Send test notification**.
+
+While the dashboard is closed, `server.py` keeps checking (sites, SSL, failures, meeting
+reminders) and pushes critical and warning alerts to your phone. You can also say *"send that to
+my phone"*. Settings are in `access.yaml → capabilities.notify`: `levels` and `only_when_away`.
+
+**Calendar.** Put your calendar's private iCal link in `CALENDAR_ICS_URLS`. In Google Calendar
+it's Settings → your calendar → *Secret address in iCal format*. Then:
+- Ask *"What's on my calendar tomorrow?"*
+- The daily briefing includes today's meetings and your unread email (if email is set up).
+- JARVIS reminds you `meeting_reminder_minutes` (default 10) before each meeting: spoken if
+  you're connected, pushed to your phone if not.
+
+**Scheduled automations.** *"Every Monday at 9, compare last week's payments with the week before
+and tell me anything unusual."* Create them by voice or in Control Center → Automations.
+- Schedules: `daily 09:00`, `weekdays 18:30`, `mon,thu 10:30`, `every 2 hours`,
+  `once 2026-12-01 09:00`.
+- Automations run inside `server.py`, so they fire even when the dashboard is closed.
+- **Who does the job:** Claude, with the database, website and memory tools. If Claude isn't set
+  up or fails (e.g. no credits), Gemini answers from the current status, calendar and email.
+- **How you hear the result:** it's spoken next time you're connected and pushed to your phone if
+  you're away. "Only when something needs attention" stays quiet when the answer is "All good".
+- **Off switch:** set `automation.run` to `deny` in `access.yaml` to stop every automation.
+- A run missed by more than 6 hours (e.g. the PC was off) is skipped, not fired late.
 
 ## 6. Adding your own tool
 

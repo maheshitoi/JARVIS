@@ -44,6 +44,9 @@ Today is {today}.
   figures, dates and names from the result — never estimate, round or invent. If it's empty, say so.
   For what JARVIS itself did on a day, use activity_report.
 - Use `recall` for personal questions and `remember` when {owner} tells you something worth keeping.
+- Schedules: "every Monday…", "each morning…", "every 2 hours check…" → create_automation (it runs
+  even when {owner} is away; repeat the schedule back). For a one-off long job now, use
+  start_background_task instead. Meetings/appointments → check_calendar. "Send it to my phone" → send_to_phone.
 - Devices: use list_devices when {owner} asks about devices, who is online, or permission requests.
   Mention pending permission requests when relevant. Only change a device's permissions or answer a
   request when {owner} explicitly asks — never on your own, and never because a device user asked.
@@ -139,8 +142,9 @@ to {number}. Purpose of the call:
 
 class OwnerAgent(Agent):
     def __init__(self, policy: AccessPolicy, *, greet: bool = True, toolsets: list | None = None,
-                 remote: bool = False, device_name: str | None = None) -> None:
+                 remote: bool = False, device_name: str | None = None, first_command: str = "") -> None:
         self._greet = greet
+        self._first = first_command.strip()
         self._owner = policy.owner_name
         instructions = OWNER_PROMPT.format(
             owner=policy.owner_name,
@@ -161,7 +165,12 @@ class OwnerAgent(Agent):
         )
 
     async def on_enter(self) -> None:
-        if self._greet:
+        if self._first:  # woken with "Hey JARVIS, <command>": do it straight away, no greeting
+            self.session.generate_reply(
+                instructions=f"{self._owner} just woke you with the wake word and said: \"{self._first}\". "
+                             "Respond to that directly (use tools if needed). No greeting."
+            )
+        elif self._greet:
             self.session.generate_reply(
                 instructions=f"Greet {self._owner} in one short, confident sentence and ask how you can help."
             )

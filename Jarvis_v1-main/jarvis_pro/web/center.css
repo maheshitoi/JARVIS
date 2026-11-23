@@ -4,6 +4,17 @@
 .center-btn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; font-size: 13px; }
 .center-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
+/* wake word button (wake.js): the dot shows the state, the label says it in words */
+.wake-btn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; font-size: 13px; }
+.wake-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+.wake-btn[data-mode="listening"] { border-color: rgba(56, 214, 255, .55); }
+.wake-btn[data-mode="listening"] .wake-dot { background: var(--accent); border-color: var(--accent); animation: wake-pulse 1.6s ease-in-out infinite; }
+.wake-btn[data-mode="heard"] .wake-dot, .wake-btn[data-mode="awake"] .wake-dot { background: var(--allow); border-color: var(--allow); }
+.wake-btn[data-mode="blocked"] { border-color: rgba(255, 92, 122, .5); }
+.wake-btn[data-mode="blocked"] .wake-dot { border-color: var(--danger); background: transparent; }
+@keyframes wake-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56, 214, 255, .5); } 50% { box-shadow: 0 0 0 5px rgba(56, 214, 255, 0); } }
+@media (prefers-reduced-motion: reduce) { .wake-btn .wake-dot { animation: none !important; } }
+
 /* chart + status colours (validated on #111927; see center.js) */
 .center {
   --c-done: #3987e5;
@@ -154,6 +165,21 @@
 .c-check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .c-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+/* automations (center.js) */
+.c-auto-new { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; min-width: 0; }
+.c-auto-new > *, .c-auto-new .c-input, .c-auto-new .c-select { min-width: 0; max-width: 100%; }
+.c-auto-new .c-wide { grid-column: 1 / -1; }
+.c-auto-new textarea.c-input { min-height: 64px; resize: vertical; font-family: inherit; }
+.c-auto { background: rgba(255, 255, 255, .03); border: 1px solid var(--c-line); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+.c-auto-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.c-auto-head .c-task-t { flex: 1 1 200px; }
+.c-auto-job { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.c-auto details { margin-top: 8px; }
+.c-auto summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.small-btn.danger { color: var(--danger); border-color: rgba(255, 92, 122, .5); }
+.c-examples { display: flex; gap: 6px; flex-wrap: wrap; }
+.c-examples button { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+
 /* proactive alerts */
 .alerts {
   position: fixed; inset: 70px 16px auto auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--text);
@@ -181,4 +207,7 @@
   .center-head { flex-wrap: wrap; }
   .center-btn { padding: 6px 10px; font-size: 0; gap: 0; }
   .center-btn svg { width: 18px; height: 18px; }
+  .wake-btn { padding: 6px 10px; }
+  #wake-label { display: none; }
+  .c-auto-new { grid-template-columns: minmax(0, 1fr); }
 }

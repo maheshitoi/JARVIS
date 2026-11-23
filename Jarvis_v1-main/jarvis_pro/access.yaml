@@ -198,6 +198,41 @@ capabilities:
     failure_window_minutes: 30
     failure_alert_count: 3 # this many failed actions within the window = alert
     speak_info_alerts: true # false = info alerts (phone messages, site back up) only pop up, not spoken
+    meeting_reminder_minutes: 10 # remind before calendar meetings (0 = off); needs the calendar below
+
+  # -------------------------------------------------------------------
+  # AUTOMATION — scheduled jobs JARVIS runs by itself ("every Monday at 9, check ...")
+  # Runs inside server.py, so it works even when the dashboard is closed.
+  # -------------------------------------------------------------------
+  automation:
+    description: "Scheduled jobs: daily/weekly checks and reports, run even when you're away"
+    risk: medium
+    enabled: true
+    actions:
+      manage: allow # create / pause / delete automations (by voice or in Control Center)
+      run: allow # deny = every automation stops running (an emergency off switch)
+
+  # -------------------------------------------------------------------
+  # CALENDAR — read-only, from private iCal links (CALENDAR_ICS_URLS in .env)
+  # -------------------------------------------------------------------
+  calendar:
+    description: "Read your calendar: today's meetings, the week ahead, meeting reminders"
+    risk: low
+    enabled: true
+    actions:
+      read: allow
+
+  # -------------------------------------------------------------------
+  # NOTIFY — push notifications to your phone via the ntfy app (NTFY_TOPIC in .env)
+  # -------------------------------------------------------------------
+  notify:
+    description: "Push alerts and automation results to your phone"
+    risk: low
+    enabled: true
+    actions:
+      push: allow
+    levels: [critical, warning] # which alerts are pushed (add info for phone messages / site back up)
+    only_when_away: true # true = push only while the dashboard is closed; false = always push too
 
   # -------------------------------------------------------------------
   # MCP — Model Context Protocol servers JARVIS connects to for extra tools.
@@ -217,7 +252,7 @@ capabilities:
         args: ["mcp_servers/website_monitor.py"]
         allowed_tools: [] # empty = all tools of this server
       project: # YOUR OTHER PROJECT — reports, updates and data
-        enabled: false # OFF: PROJECT_MCP_URL currently answers "Not Found" on initialize — fix the URL, then set true
+        enabled: true # OFF: PROJECT_MCP_URL currently answers "Not Found" on initialize — fix the URL, then set true
         title: "TeleDoctor" # the name you'll use when asking, e.g. "TeleDoctor"
         url: "${PROJECT_MCP_URL}" # the MCP URL (streamable HTTP), set in .env
         headers: { Authorization: "Bearer ${PROJECT_MCP_TOKEN}" } # dropped when no token is set

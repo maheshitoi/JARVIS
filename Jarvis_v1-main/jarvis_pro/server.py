@@ -31,11 +31,23 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from livekit import api  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from jarvis import audit, business, config, devices, insights, memory, websites  # noqa: E402
-from jarvis.access import DENY, get_policy  # noqa: E402
-from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
 
-app = FastAPI(title="JARVIS PRO", docs_url=None, redoc_url=None)
+from jarvis import audit, automations, background, business, calendar_feed, config, devices, insights, memory, notify, websites  # noqa: E402
+from jarvis.access import DENY, get_policy  # noqa: E402
+from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, WAKE_ATTR  # noqa: E402
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Scheduled automations + away-mode phone alerts keep running while nobody is connected.
+    import asyncio
+
+    task = asyncio.create_task(background.run_forever())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="JARVIS PRO", docs_url=None, redoc_url=None, lifespan=lifespan)
 PASSWORD = config.env("JARVIS_UI_PASSWORD") or ""
 
 # ---- brute-force protection: 5 wrong passwords in 10 min -> that client is locked out 15 min
@@ -120,8 +132,12 @@ def device_of(request: Request) -> str:
     return "host" if local else "remote"
 
 
+class TokenOptions(BaseModel):
+    wake: str = ""  # what Boss said right after "Hey JARVIS" (wake word): answered instead of a greeting
+
+
 @app.post("/api/token", dependencies=[Depends(check_key)])
-def token(request: Request) -> dict:
+def token(request: Request, body: TokenOptions | None = None) -> dict:
     url, key, secret = (config.env(n) for n in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
     if not (url and key and secret):
         raise HTTPException(500, "LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET missing in .env")
@@ -131,7 +147,8 @@ def token(request: Request) -> dict:
         api.AccessToken(key, secret)
         .with_identity(identity)
         .with_name(get_policy().owner_name)
-        .with_attributes({OWNER_ROLE_ATTR: "owner", DEVICE_ATTR: device_of(request)})
+        .with_attributes({OWNER_ROLE_ATTR: "owner", DEVICE_ATTR: device_of(request),
+                          **({WAKE_ATTR: body.wake.strip()[:300]} if body and body.wake.strip() else {})})
         .with_grants(api.VideoGrants(room_join=True, room=room, can_publish=True,
                                      can_subscribe=True, can_publish_data=True))
         .with_room_config(api.RoomConfiguration(agents=[api.RoomAgentDispatch(agent_name=config.AGENT_NAME)]))
@@ -411,6 +428,71 @@ def settings_post(body: SettingsUpdate, request: Request) -> dict:
 async def settings_test_claude(request: Request) -> dict:
     _local_only(request)
     return await insights.test_claude()
+
+
+# ------------------------------------------------------------ automations --
+class NewAutomation(BaseModel):
+    title: str
+    job: str
+    when: str
+    notify: str = "auto"
+
+
+def _automation_or_404(automation_id: str) -> dict:
+    a = next((x for x in automations.load() if x["id"] == automation_id), None)
+    if a is None:
+        raise HTTPException(404, "No such automation")
+    return a
+
+
+@app.get("/api/automations", dependencies=[Depends(check_key)])
+def automations_list() -> dict:
+    return {"items": automations.load(), "notify_modes": automations.NOTIFY_MODES,
+            "push_ready": notify.configured(), "calendar_ready": calendar_feed.configured(),
+            "email_ready": bool(config.env("EMAIL_ADDRESS"))}
+
+
+@app.post("/api/automations", dependencies=[Depends(check_key)])
+def automations_create(body: NewAutomation) -> dict:
+    if get_policy().level("automation.manage") == DENY:
+        raise HTTPException(403, "automation.manage is denied in access.yaml")
+    try:
+        a = automations.create(body.title, body.job, body.when, body.notify)
+    except automations.ScheduleError as e:
+        raise HTTPException(400, str(e)) from e
+    audit.record({"capability": "automation.manage", "summary": f"Automation created: {a['title']} ({a['schedule']})",
+                  "status": "done", "mode": "owner"})
+    return a
+
+
+@app.post("/api/automations/{automation_id}/enabled", dependencies=[Depends(check_key)])
+def automations_enable(automation_id: str, body: Enabled) -> dict:
+    _automation_or_404(automation_id)
+    return automations.set_enabled(automation_id, body.enabled) or {}
+
+
+@app.post("/api/automations/{automation_id}/run", dependencies=[Depends(check_key)])
+def automations_run(automation_id: str) -> dict:
+    _automation_or_404(automation_id)
+    automations.run_soon(automation_id)
+    return {"ok": True}
+
+
+@app.delete("/api/automations/{automation_id}", dependencies=[Depends(check_key)])
+def automations_delete(automation_id: str) -> dict:
+    a = _automation_or_404(automation_id)
+    automations.delete(automation_id)
+    audit.record({"capability": "automation.manage", "summary": f"Automation deleted: {a['title']}",
+                  "status": "done", "mode": "owner"})
+    return {"ok": True}
+
+
+@app.post("/api/notify/test", dependencies=[Depends(check_key)])
+async def notify_test() -> dict:
+    if not notify.configured():
+        raise HTTPException(400, "Set NTFY_TOPIC in .env first (and subscribe to it in the ntfy app).")
+    ok = await notify.push("JARVIS test", "Push notifications are working.", "info")
+    return {"ok": ok}
 
 
 @app.get("/")
