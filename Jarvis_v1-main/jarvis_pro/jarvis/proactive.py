@@ -21,7 +21,7 @@ from typing import Any
 
 from . import audit, config, websites
 from .access import DENY, get_policy
-from .guard import EVENTS_TOPIC
+from .protocol import EVENTS_TOPIC
 
 logger = logging.getLogger("jarvis.proactive")
 

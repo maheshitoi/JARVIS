@@ -105,7 +105,7 @@ The full list of access JARVIS can have:
 cd D:\project\jarvis\JARVIS\Jarvis_v1-main\jarvis_pro
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-agent.txt   # everything; requirements.txt alone = dashboard server only
 copy .env.example .env          # fill in LIVEKIT_* and GOOGLE_API_KEY (or keep them in ../.env)
 ```
 
@@ -490,7 +490,9 @@ jarvis_pro/
 ├── access.yaml              ← THE access file
 ├── agent.py                 ← voice agent entrypoint (owner / caller / outbound sessions)
 ├── server.py                ← dashboard server + token API
-├── requirements.txt
+├── requirements.txt         ← dashboard server only (what Vercel installs)
+├── requirements-agent.txt   ← everything: server + voice agent + PC control
+├── vercel.json
 ├── .env.example
 ├── jarvis/
 │   ├── config.py            ← paths, env vars, model names

@@ -1,28 +1,15 @@
-# Voice agent
-livekit-agents[google]~=1.8
-livekit-plugins-noise-cancellation~=0.2
-livekit-api>=1.0
-mcp>=2.0            # MCP client (JARVIS) + website monitor MCP server
-certifi
+# Dashboard server (server.py) — the only list Vercel installs, so keep it lean.
+# Running JARVIS itself (voice agent, PC control) needs:  pip install -r requirements-agent.txt
+fastapi
+uvicorn[standard]
+livekit-api>=1.0     # LiveKit access tokens and dispatch
 google-genai>=1.0
 anthropic>=2.0       # Claude deep-thinking brain (optional: needs ANTHROPIC_API_KEY)
+mcp>=2.0             # MCP client (JARVIS) + website monitor MCP server
+certifi
 python-dotenv
 pyyaml
 httpx
 psycopg[binary]>=3.2   # PostgreSQL database reports (read-only)
-
-# Dashboard server
-fastapi
-uvicorn[standard]
-
-# Windows PC + screen
-psutil
-mss
-Pillow
-pygetwindow
-pyautogui
-
-# Social media
-tweepy
 icalendar>=6.0
 recurring-ical-events>=3.0

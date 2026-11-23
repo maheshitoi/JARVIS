@@ -35,16 +35,18 @@ from contextlib import asynccontextmanager  # noqa: E402
 
 from jarvis import audit, automations, background, business, calendar_feed, config, devices, insights, memory, notify, websites  # noqa: E402
 from jarvis.access import DENY, get_policy  # noqa: E402
-from jarvis.guard import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, WAKE_ATTR  # noqa: E402
+from jarvis.protocol import DEVICE_ATTR, DEVICE_ID_ATTR, DEVICE_NAME_ATTR, OWNER_ROLE_ATTR, WAKE_ATTR  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Scheduled automations + away-mode phone alerts keep running while nobody is connected.
+    # Not on Vercel: functions stop between requests, and the jobs need the voice-agent packages.
     import asyncio
 
-    task = asyncio.create_task(background.run_forever())
+    task = None if config.ON_VERCEL else asyncio.create_task(background.run_forever())
     yield
-    task.cancel()
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="JARVIS PRO", docs_url=None, redoc_url=None, lifespan=lifespan)

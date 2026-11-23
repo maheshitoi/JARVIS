@@ -1,0 +1,17 @@
+# Everything for running JARVIS on your PC: dashboard server + voice agent + PC control.
+#     pip install -r requirements-agent.txt
+-r requirements.txt
+
+# Voice agent
+livekit-agents[google]~=1.8
+livekit-plugins-noise-cancellation~=0.2
+
+# Windows PC + screen
+psutil
+mss
+Pillow
+pygetwindow
+pyautogui
+
+# Social media
+tweepy
