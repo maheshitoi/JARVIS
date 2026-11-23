@@ -8,7 +8,6 @@ memory or contacts.
 from __future__ import annotations
 
 import json
-import threading
 import uuid
 from datetime import datetime
 from typing import Any
@@ -19,9 +18,7 @@ from .. import config
 from .. import memory as long_memory
 from ..guard import action
 
-MEMORY_FILE = config.DATA_DIR / "memory.json"
 CONTACTS_FILE = config.DATA_DIR / "contacts.json"
-_lock = threading.Lock()
 
 
 def _load(path, default):
@@ -31,24 +28,6 @@ def _load(path, default):
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return default
-
-
-def _save(path, data) -> None:
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
-
-
-def _memory_file(context: RunContext):
-    userdata = getattr(context, "userdata", None)
-    if getattr(userdata, "mode", "owner") == "guest":
-        device_id = getattr(userdata, "device_id", None)
-        if not device_id:
-            raise ToolError("Memory isn't available here.")
-        folder = config.DATA_DIR / "memory"
-        folder.mkdir(exist_ok=True)
-        return folder / f"{device_id}.json"
-    return MEMORY_FILE
 
 
 def _scope(context: RunContext) -> str:

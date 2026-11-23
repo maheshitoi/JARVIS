@@ -590,7 +590,6 @@ async def make_phone_call(self, context: RunContext, phone_number: str, purpose:
   - `async def on_user_turn_completed(self, turn_ctx, new_message)`: runs after each user utterance. `new_message.text_content` holds the text. Put emotion or wake-word logic here. To skip responding, `raise StopResponse()` (from `livekit.agents`).
 - `asyncio.get_event_loop().time()` in `__init__` should be `time.monotonic()`.
 - `list_models.py` imports `google.generativeai`, which isn't in `requirements.txt`. Install it with `pip install google-generativeai`, or rewrite it with `google-genai`.
-- The stray file named `Get-ExecutionPolicy` in the project folder was created by accident and can be deleted.
 - `prompt.py` mentions "Boss (Ghost)" and "him". Change these to suit you.
 
 ---

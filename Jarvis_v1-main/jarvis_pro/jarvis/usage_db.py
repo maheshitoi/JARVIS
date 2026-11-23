@@ -180,11 +180,6 @@ def _action_row(event_hash: str, e: dict[str, Any]) -> tuple:
     )
 
 
-def ensure_schema() -> None:
-    with _connect() as conn:
-        conn.execute(DDL)
-
-
 def sync_files() -> dict[str, int]:
     """Create the tables and import everything from the files (safe to run again)."""
     from psycopg.types.json import Jsonb

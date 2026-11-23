@@ -22,7 +22,7 @@ import logging
 import math
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from . import config
@@ -242,15 +242,6 @@ async def forget(memory_id_or_text: str, *, scope: str = "owner") -> int:
     return await asyncio.to_thread(delete)
 
 
-async def import_json() -> int:
-    """Copy facts from data/memory.json into the database (run once; safe to repeat)."""
-    n = 0
-    for f in _json_load("owner"):
-        if (await add(f["fact"], source="import"))["status"] == "saved":
-            n += 1
-    return n
-
-
 # ---------------------------------------------------------- extraction --
 EXTRACT_PROMPT = """From this conversation between {owner} and the assistant JARVIS, extract facts about
 {owner} worth remembering for months: stable personal facts, preferences, people in their life (name +
@@ -370,7 +361,3 @@ def session_lines(session_id: str) -> list[dict[str, Any]]:
         rows = conn.execute(f"SELECT ts, role, text FROM {SCHEMA}.conversations WHERE session_id = %s ORDER BY ts",
                             (session_id,)).fetchall()
     return [{"ts": r[0].isoformat(), "role": r[1], "text": r[2]} for r in rows]
-
-
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)

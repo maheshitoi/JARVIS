@@ -16,3 +16,5 @@ device_app/build/
 device_app/dist/
 device_app/*.spec
 data/proactive_state.json
+reports/
+data/site_last_report.txt
