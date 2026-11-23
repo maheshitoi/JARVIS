@@ -1,0 +1,16 @@
+# Never upload secrets, local state or build output (matters for `vercel deploy` from this PC).
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+logs/
+reports/
+data/*.json
+data/*.jsonl
+data/*.txt
+!data/contacts.example.json
+!data/customers.example.json
+data/business.yaml
+# The Device app is a Windows desktop client, not part of the Vercel deployment.
+device_app/

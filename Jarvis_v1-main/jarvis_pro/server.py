@@ -92,6 +92,8 @@ def _record_failure(ip: str, what: str) -> None:
 def check_key(request: Request, x_jarvis_key: str = Header(default=""),
               jarvis_key: str = Cookie(default="")) -> None:
     if not PASSWORD:
+        if config.ON_VERCEL:  # a public URL with no password would let anyone in
+            raise HTTPException(503, "Set JARVIS_UI_PASSWORD in the Vercel project's environment variables.")
         return
     ip = client_ip(request)
     _check_lockout(ip)

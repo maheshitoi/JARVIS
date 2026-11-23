@@ -18,13 +18,22 @@ for _k in [k for k, v in os.environ.items() if v == ""]:
     del os.environ[_k]
 load_dotenv(BASE_DIR.parent / ".env")
 
-DATA_DIR = BASE_DIR / "data"
-LOG_DIR = BASE_DIR / "logs"
+ON_VERCEL = bool(os.getenv("VERCEL"))
+# Vercel's file system is read-only except /tmp, which is wiped on every cold start: data,
+# logs and reports written there don't last. Bundled files in data/ (examples) are copied over.
+RUNTIME_DIR = Path(os.getenv("JARVIS_RUNTIME_DIR") or ("/tmp/jarvis" if ON_VERCEL else BASE_DIR))
+DATA_DIR = RUNTIME_DIR / "data"
+LOG_DIR = RUNTIME_DIR / "logs"
+REPORTS_DIR = RUNTIME_DIR / "reports"
 WEB_DIR = BASE_DIR / "web"
 ACCESS_FILE = Path(os.getenv("JARVIS_ACCESS_FILE", str(BASE_DIR / "access.yaml")))
 
-DATA_DIR.mkdir(exist_ok=True)
-LOG_DIR.mkdir(exist_ok=True)
+if ON_VERCEL and not DATA_DIR.exists():
+    import shutil
+
+    shutil.copytree(BASE_DIR / "data", DATA_DIR, dirs_exist_ok=True)
+for _d in (DATA_DIR, LOG_DIR, REPORTS_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
 
 AGENT_NAME = os.getenv("JARVIS_AGENT_NAME", "jarvis-pro")
 # Measured on this key (time to first spoken audio): 3.8-live 0.5 s, 3.1-flash-live 0.6 s,

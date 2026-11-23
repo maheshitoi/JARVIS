@@ -30,8 +30,7 @@ from . import audit, config
 from .access import get_policy
 
 HISTORY_FILE = config.DATA_DIR / "site_checks.jsonl"
-REPORTS_DIR = config.BASE_DIR / "reports"
-REPORTS_DIR.mkdir(exist_ok=True)
+REPORTS_DIR = config.REPORTS_DIR
 USER_AGENT = "JARVIS-SiteMonitor/1.0 (+self-hosted website monitor)"
 
 
